@@ -11,17 +11,12 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X, Trash2, Copy, Clipboard, Image as ImageIcon, Link, FileText, ArrowLeft, Pin, Save, FileDown } from 'lucide-react';
 import type { ClipboardItem } from '../types/electron';
 import ExtensionActionFooter from './components/ExtensionActionFooter';
+import type { ExtractedAction, ActionShortcut } from './raycast-api/action-runtime-types';
+import { KeyModifier } from './raycast-api/action-runtime-types';
+import { InternalActionPanelOverlay } from './raycast-api';
 
 interface ClipboardManagerProps {
   onClose: () => void;
-}
-
-interface Action {
-  title: string;
-  icon?: React.ReactNode;
-  shortcut?: string[];
-  execute: () => void | Promise<void>;
-  style?: 'default' | 'destructive';
 }
 
 type ClipboardStatus = {
@@ -37,20 +32,12 @@ const ClipboardManager: React.FC<ClipboardManagerProps> = ({ onClose }) => {
   const [filterType, setFilterType] = useState<'all' | 'text' | 'image' | 'url' | 'file'>('all');
   const [isLoading, setIsLoading] = useState(true);
   const [showActions, setShowActions] = useState(false);
-  const [selectedActionIndex, setSelectedActionIndex] = useState(0);
   const [frontmostAppName, setFrontmostAppName] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<ClipboardStatus | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const actionsOverlayRef = useRef<HTMLDivElement>(null);
   const statusTimerRef = useRef<number | null>(null);
-  const isGlassyTheme =
-    document.documentElement.classList.contains('sc-glassy') ||
-    document.body.classList.contains('sc-glassy');
-  const isNativeLiquidGlass =
-    document.documentElement.classList.contains('sc-native-liquid-glass') ||
-    document.body.classList.contains('sc-native-liquid-glass');
 
   const focusSearchInput = useCallback(() => {
     // Defer focus to the next frame so window/show transitions don't steal it.
@@ -198,11 +185,7 @@ const ClipboardManager: React.FC<ClipboardManagerProps> = ({ onClose }) => {
     scrollToSelected();
   }, [selectedIndex, scrollToSelected]);
 
-  useEffect(() => {
-    if (!showActions) return;
-    setSelectedActionIndex(0);
-    setTimeout(() => actionsOverlayRef.current?.focus(), 0);
-  }, [showActions]);
+
 
   const handlePasteItem = async (item?: ClipboardItem) => {
     const itemToPaste = item || filteredItems[selectedIndex];
@@ -294,50 +277,50 @@ const ClipboardManager: React.FC<ClipboardManagerProps> = ({ onClose }) => {
 
   const pasteLabel = frontmostAppName ? `Paste in ${frontmostAppName}` : 'Paste';
 
-  const actions: Action[] = [];
+  const actions: ExtractedAction[] = [];
   actions.push({
     title: pasteLabel,
     icon: <Clipboard className="w-4 h-4" />,
-    shortcut: ['↩'],
+    shortcut: { key: 'enter' },
     execute: () => handlePasteItem(),
   });
   actions.push({
     title: 'Copy to Clipboard',
     icon: <Copy className="w-4 h-4" />,
-    shortcut: ['⌘', '↩'],
+    shortcut: { modifiers: [KeyModifier.Cmd], key: 'enter' },
     execute: handleCopyToClipboard,
   });
   actions.push({
     title: selectedItem?.pinned ? 'Unpin Clipboard Entry' : 'Pin Clipboard Entry',
     icon: <Pin className="w-4 h-4" />,
-    shortcut: ['⌃', 'P'],
+    shortcut: { modifiers: [KeyModifier.Ctrl], key: 'p' },
     execute: handleTogglePinItem,
   });
   if (canSaveAsSnippet) {
     actions.push({
       title: 'Save as Snippet',
       icon: <Save className="w-4 h-4" />,
-      shortcut: ['⌃', 'S'],
+      shortcut: { modifiers: [KeyModifier.Ctrl], key: 's' },
       execute: handleSaveAsSnippet,
     });
   }
   actions.push({
     title: 'Save as File',
     icon: <FileDown className="w-4 h-4" />,
-    shortcut: ['⌃', '⇧', 'S'],
+    shortcut: { modifiers: [KeyModifier.Ctrl, KeyModifier.Shift], key: 's' },
     execute: handleSaveAsFile,
   });
   actions.push({
     title: 'Delete',
     icon: <Trash2 className="w-4 h-4" />,
-    shortcut: ['⌃', 'X'],
+    shortcut: { modifiers: [KeyModifier.Ctrl], key: 'x' },
     execute: () => handleDeleteItem(),
     style: 'destructive',
   });
   actions.push({
     title: 'Delete All Entries',
     icon: <Trash2 className="w-4 h-4" />,
-    shortcut: ['⌃', '⇧', 'X'],
+    shortcut: { modifiers: [KeyModifier.Ctrl, KeyModifier.Shift], key: 'x' },
     execute: handleClearAll,
     style: 'destructive',
   });
@@ -354,72 +337,7 @@ const ClipboardManager: React.FC<ClipboardManagerProps> = ({ onClose }) => {
         return;
       }
 
-      if (showActions) {
-        if (isMetaEnter(e)) {
-          e.preventDefault();
-          void handleCopyToClipboard();
-          setShowActions(false);
-          return;
-        }
-        if (e.key.toLowerCase() === 'x' && e.ctrlKey && e.shiftKey) {
-          e.preventDefault();
-          void handleClearAll();
-          setShowActions(false);
-          return;
-        }
-        if (e.key.toLowerCase() === 's' && e.ctrlKey && e.shiftKey) {
-          e.preventDefault();
-          void handleSaveAsFile();
-          setShowActions(false);
-          return;
-        }
-        if (e.key.toLowerCase() === 's' && e.ctrlKey) {
-          e.preventDefault();
-          if (canSaveAsSnippet) {
-            void handleSaveAsSnippet();
-            setShowActions(false);
-          }
-          return;
-        }
-        if (e.key.toLowerCase() === 'p' && e.ctrlKey) {
-          e.preventDefault();
-          void handleTogglePinItem();
-          setShowActions(false);
-          return;
-        }
-        if (e.key.toLowerCase() === 'x' && e.ctrlKey) {
-          e.preventDefault();
-          void handleDeleteItem();
-          setShowActions(false);
-          return;
-        }
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          setSelectedActionIndex((prev) => (prev < actions.length - 1 ? prev + 1 : prev));
-          return;
-        }
-        if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          setSelectedActionIndex((prev) => (prev > 0 ? prev - 1 : 0));
-          return;
-        }
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          const action = actions[selectedActionIndex];
-          if (action) {
-            action.execute();
-          }
-          setShowActions(false);
-          return;
-        }
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          setShowActions(false);
-          requestAnimationFrame(() => inputRef.current?.focus());
-          return;
-        }
-        return;
-      }
+      if (showActions) return;
 
       if (isMetaEnter(e)) {
         e.preventDefault();
@@ -473,7 +391,7 @@ const ClipboardManager: React.FC<ClipboardManagerProps> = ({ onClose }) => {
           break;
       }
     },
-    [filteredItems, selectedIndex, onClose, showActions, actions, selectedActionIndex, canSaveAsSnippet]
+    [filteredItems, selectedIndex, onClose, showActions, actions, canSaveAsSnippet]
   );
 
   const formatDate = (timestamp: number): string =>
@@ -671,111 +589,27 @@ const ClipboardManager: React.FC<ClipboardManagerProps> = ({ onClose }) => {
             ? {
                 label: actions[0].title,
                 onClick: () => handlePasteItem(),
-                shortcut: ['↩'],
+                shortcut: { key: 'enter' },
               }
             : undefined
         }
         actionsButton={{
           label: 'Actions',
           onClick: () => setShowActions(true),
-          shortcut: ['⌘', 'K'],
+          shortcut: { modifiers: [KeyModifier.Cmd], key: 'k' },
         }}
       />
 
-      {/* Actions Overlay - styled exactly like ActionPanelOverlay */}
+      {/* Actions Overlay */}
       {showActions && (
-        <div 
-          className="fixed inset-0 z-50" 
-          onClick={() => setShowActions(false)}
-          style={{ background: 'var(--bg-scrim)' }}
-        >
-          <div
-            ref={actionsOverlayRef}
-            className="absolute bottom-12 right-3 w-80 max-h-[65vh] rounded-xl overflow-hidden flex flex-col shadow-2xl outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0"
-            tabIndex={0}
-            style={
-              isNativeLiquidGlass
-                ? {
-                    background: 'rgba(var(--surface-base-rgb), 0.72)',
-                    backdropFilter: 'blur(44px) saturate(155%)',
-                    WebkitBackdropFilter: 'blur(44px) saturate(155%)',
-                    border: '1px solid rgba(var(--on-surface-rgb), 0.22)',
-                    boxShadow: '0 18px 38px -12px rgba(var(--backdrop-rgb), 0.26)',
-                  }
-                : isGlassyTheme
-                ? {
-                    background: 'linear-gradient(160deg, rgba(var(--on-surface-rgb), 0.08), rgba(var(--on-surface-rgb), 0.01)), rgba(var(--surface-base-rgb), 0.42)',
-                    backdropFilter: 'blur(96px) saturate(190%)',
-                    WebkitBackdropFilter: 'blur(96px) saturate(190%)',
-                    border: '1px solid rgba(var(--on-surface-rgb), 0.05)',
-                  }
-                : {
-                    background: 'var(--card-bg)',
-                    backdropFilter: 'blur(40px)',
-                    WebkitBackdropFilter: 'blur(40px)',
-                    border: '1px solid var(--border-primary)',
-                  }
-            }
-            onFocus={(e) => {
-              (e.currentTarget as HTMLDivElement).style.outline = 'none';
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex-1 overflow-y-auto py-1">
-              {actions.map((action, idx) => (
-                <div
-                  key={idx}
-                  className={`mx-1 px-2.5 py-1.5 rounded-lg border border-transparent flex items-center gap-2.5 cursor-pointer transition-colors ${
-                    idx === selectedActionIndex
-                      ? action.style === 'destructive'
-                        ? 'bg-[var(--action-menu-selected-bg)] text-[var(--status-danger-faded)]'
-                        : 'bg-[var(--action-menu-selected-bg)] text-[var(--text-primary)]'
-                      : ''
-                  } ${
-                    action.style === 'destructive'
-                      ? 'hover:bg-[var(--overlay-item-hover-bg)] text-[var(--status-danger-faded)]'
-                      : 'hover:bg-[var(--overlay-item-hover-bg)] text-[var(--text-secondary)]'
-                  }`}
-                  style={
-                    idx === selectedActionIndex
-                      ? {
-                          background: 'var(--action-menu-selected-bg)',
-                          borderColor: 'var(--action-menu-selected-border)',
-                          boxShadow: 'var(--action-menu-selected-shadow)',
-                        }
-                      : undefined
-                  }
-                  onMouseMove={() => setSelectedActionIndex(idx)}
-                  onClick={() => {
-                    action.execute();
-                    setShowActions(false);
-                  }}
-                >
-                  {action.icon ? (
-                    <span className={action.style === 'destructive' ? 'text-[var(--status-danger-faded)]' : 'text-[var(--text-muted)]'}>
-                      {action.icon}
-                    </span>
-                  ) : null}
-                  <span className="flex-1 text-sm truncate">
-                    {action.title}
-                  </span>
-                  {action.shortcut ? (
-                    <span className="flex items-center gap-0.5">
-                      {action.shortcut.map((key, keyIdx) => (
-                        <kbd
-                          key={`${idx}-${key}-${keyIdx}`}
-                          className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded bg-[var(--kbd-bg)] text-[11px] font-medium text-[var(--text-muted)]"
-                        >
-                          {key}
-                        </kbd>
-                      ))}
-                    </span>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <InternalActionPanelOverlay
+          actions={actions}
+          onClose={() => {
+            setShowActions(false);
+            requestAnimationFrame(() => inputRef.current?.focus());
+          }}
+          onExecute={(action) => action.execute()}
+        />
       )}
     </div>
   );

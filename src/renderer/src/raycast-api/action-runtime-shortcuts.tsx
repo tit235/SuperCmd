@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import type { ActionShortcut } from './action-runtime-types';
+import { ActionShortcut, KeyModifier } from './action-runtime-types';
 
 const shortcutBadgeClassName =
   'inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded bg-[var(--kbd-bg)] text-[11px] text-[var(--text-subtle)] font-medium';
@@ -21,12 +21,16 @@ export function normalizeShortcut(shortcut?: any): ActionShortcut | undefined {
   if (shortcut.key) return shortcut as ActionShortcut;
   // Platform-specific format: { macOS: { key, modifiers }, Windows: { key, modifiers } }
   const platformKey = process.platform === 'darwin' ? 'macOS' : 'Windows';
-  const platformShortcut = shortcut[platformKey] || shortcut.macOS || shortcut.Windows;
+  const platformShortcut =
+    shortcut[platformKey] || shortcut.macOS || shortcut.Windows;
   if (platformShortcut?.key) return platformShortcut as ActionShortcut;
   return undefined;
 }
 
-export function renderShortcutKeycap(label: string, key?: React.Key): React.ReactNode {
+export function renderShortcutKeycap(
+  label: string,
+  key?: React.Key,
+): React.ReactNode {
   return (
     <kbd key={key} className={shortcutBadgeClassName}>
       {label}
@@ -34,7 +38,10 @@ export function renderShortcutKeycap(label: string, key?: React.Key): React.Reac
   );
 }
 
-export function matchesShortcut(e: React.KeyboardEvent | KeyboardEvent, rawShortcut?: ActionShortcut): boolean {
+export function matchesShortcut(
+  e: React.KeyboardEvent | KeyboardEvent,
+  rawShortcut?: ActionShortcut,
+): boolean {
   const shortcut = normalizeShortcut(rawShortcut);
   if (!shortcut?.key) return false;
   const shortcutKey = shortcut.key.toLowerCase();
@@ -50,11 +57,11 @@ export function matchesShortcut(e: React.KeyboardEvent | KeyboardEvent, rawShort
 
   const modifiers = shortcut.modifiers || [];
   // Hyper shortcuts are handled by the native monitor, not DOM events
-  if (modifiers.includes('hyper')) return false;
-  if (modifiers.includes('cmd') !== e.metaKey) return false;
-  if ((modifiers.includes('opt') || modifiers.includes('option') || modifiers.includes('alt')) !== e.altKey) return false;
-  if (modifiers.includes('shift') !== e.shiftKey) return false;
-  if (modifiers.includes('ctrl') !== e.ctrlKey) return false;
+  if (modifiers.includes(KeyModifier.Hyper)) return false;
+  if (modifiers.includes(KeyModifier.Cmd) !== e.metaKey) return false;
+  if (modifiers.includes(KeyModifier.Opt) !== e.altKey) return false;
+  if (modifiers.includes(KeyModifier.Shift) !== e.shiftKey) return false;
+  if (modifiers.includes(KeyModifier.Ctrl) !== e.ctrlKey) return false;
   return true;
 }
 
@@ -68,19 +75,31 @@ export function renderShortcut(rawShortcut?: ActionShortcut): React.ReactNode {
 
   const parts: string[] = [];
   for (const mod of shortcut.modifiers || []) {
-    if (mod === 'cmd') parts.push('⌘');
-    else if (mod === 'opt' || mod === 'alt') parts.push('⌥');
-    else if (mod === 'shift') parts.push('⇧');
-    else if (mod === 'ctrl') parts.push('⌃');
-    else if (mod === 'hyper') parts.push('✦');
+    if (mod === KeyModifier.Cmd) parts.push('⌘');
+    else if (mod === KeyModifier.Opt) parts.push('⌥');
+    else if (mod === KeyModifier.Shift) parts.push('⇧');
+    else if (mod === KeyModifier.Ctrl) parts.push('⌃');
+    else if (mod === KeyModifier.Hyper) parts.push('✦');
   }
 
+  const specialKeyMap: Record<string, string> = {
+    ' ': 'Space',
+    enter: '↩',
+    escape: 'Esc',
+    arrowup: '↑',
+    arrowdown: '↓',
+    arrowleft: '←',
+    arrowright: '→',
+    backspace: 'Backspace',
+    tab: 'Tab',
+  };
+  const keyLabel =
+    specialKeyMap[shortcut.key?.toLowerCase()] || shortcut.key?.toUpperCase();
+
   return (
-    <span className="flex items-center gap-1 ml-auto">
-      {parts.map((symbol, index) => (
-        renderShortcutKeycap(symbol, index)
-      ))}
-      {renderShortcutKeycap(shortcut.key.toUpperCase(), 'key')}
+    <span className='flex items-center gap-1 ml-auto'>
+      {parts.map((symbol, index) => renderShortcutKeycap(symbol, index))}
+      {renderShortcutKeycap(keyLabel, 'key')}
     </span>
   );
 }

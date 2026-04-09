@@ -604,6 +604,7 @@
     "actions": {
       "open": "Open",
       "openCommand": "Open Command",
+      "openApp": "Open Application",
       "openFile": "Open File",
       "execute": "Execute",
       "run": "Run",

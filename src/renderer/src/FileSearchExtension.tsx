@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ChevronDown, FolderOpen, Search } from 'lucide-react';
+import {
+  Search,
+  ChevronDown,
+  ArrowLeft,
+  FolderOpen
+} from 'lucide-react';
+import type { ExtractedAction } from './raycast-api/action-runtime-types';
+import { KeyModifier } from './raycast-api/action-runtime-types';
+import { InternalActionPanelOverlay } from './raycast-api';
 import ExtensionActionFooter from './components/ExtensionActionFooter';
 import type { FileSearchIndexStatus } from '../types/electron';
 
@@ -21,12 +29,6 @@ interface FileMetadata {
   size: string;
   created: string;
   modified: string;
-}
-
-interface ActionItem {
-  title: string;
-  shortcut: string;
-  execute: () => void | Promise<void>;
 }
 
 const IMAGE_FILE_EXTENSIONS = new Set([
@@ -173,7 +175,6 @@ const FileSearchExtension: React.FC<FileSearchExtensionProps> = ({ onClose, init
   const [isLoading, setIsLoading] = useState(false);
   const [seededDetailPath, setSeededDetailPath] = useState<string | null>(null);
   const [showActions, setShowActions] = useState(false);
-  const [selectedActionIndex, setSelectedActionIndex] = useState(0);
   const [showDetails, setShowDetails] = useState(false);
   const isGlassyTheme =
     document.documentElement.classList.contains('sc-glassy') ||
@@ -515,13 +516,13 @@ const FileSearchExtension: React.FC<FileSearchExtensionProps> = ({ onClose, init
     });
   }, [selectedPath]);
 
-  const selectedActions = useMemo<ActionItem[]>(() => {
+  const selectedActions: ExtractedAction[] = useMemo(() => {
     if (!selectedPath) return [];
     return [
-      { title: 'Open', shortcut: '↩', execute: openSelectedFile },
-      { title: 'Show Details', shortcut: '⌘ D', execute: showSelectedDetails },
-      { title: 'Copy File', shortcut: '⌘ ⇧ C', execute: copySelectedFile },
-      { title: 'Reveal in Finder', shortcut: '⌘ ↩', execute: revealSelectedFile },
+      { title: 'Open', shortcut: { key: 'enter' }, execute: openSelectedFile },
+      { title: 'Show Details', shortcut: { modifiers: [KeyModifier.Cmd], key: 'd' }, execute: showSelectedDetails },
+      { title: 'Copy File', shortcut: { modifiers: [KeyModifier.Cmd, KeyModifier.Shift], key: 'c' }, execute: copySelectedFile },
+      { title: 'Reveal in Finder', shortcut: { modifiers: [KeyModifier.Cmd], key: 'enter' }, execute: revealSelectedFile },
     ];
   }, [selectedPath, openSelectedFile, showSelectedDetails, copySelectedFile, revealSelectedFile]);
 
@@ -533,31 +534,7 @@ const FileSearchExtension: React.FC<FileSearchExtensionProps> = ({ onClose, init
         return;
       }
 
-      if (showActions) {
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          setSelectedActionIndex((prev) => Math.min(prev + 1, selectedActions.length - 1));
-          return;
-        }
-        if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          setSelectedActionIndex((prev) => Math.max(prev - 1, 0));
-          return;
-        }
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          const action = selectedActions[selectedActionIndex];
-          if (action) await Promise.resolve(action.execute());
-          setShowActions(false);
-          return;
-        }
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          setShowActions(false);
-          return;
-        }
-        return;
-      }
+      if (showActions) return;
 
       if (showDetails) {
         if (e.key === 'Enter') {
@@ -618,7 +595,6 @@ const FileSearchExtension: React.FC<FileSearchExtensionProps> = ({ onClose, init
     [
       showActions,
       selectedActions,
-      selectedActionIndex,
       showDetails,
       visibleResults.length,
       revealSelectedFile,
@@ -629,10 +605,7 @@ const FileSearchExtension: React.FC<FileSearchExtensionProps> = ({ onClose, init
     ]
   );
 
-  useEffect(() => {
-    if (!showActions) return;
-    setSelectedActionIndex(0);
-  }, [showActions]);
+
 
   return (
     <div className="w-full h-full flex flex-col relative" onKeyDown={handleKeyDown} tabIndex={-1}>
@@ -840,83 +813,22 @@ const FileSearchExtension: React.FC<FileSearchExtensionProps> = ({ onClose, init
             void openSelectedFile();
           },
           disabled: !selectedPath || opening,
-          shortcut: ['↩'],
+          shortcut: { key: 'enter' },
         }}
         actionsButton={{
           label: 'Actions',
           onClick: () => setShowActions((prev) => !prev),
-          shortcut: ['⌘', 'K'],
+          shortcut: { modifiers: [KeyModifier.Cmd], key: 'k' },
         }}
       />
 
-      {showActions ? (
-        <div
-          className="fixed inset-0 z-50"
-          style={{ background: 'var(--bg-scrim)' }}
-          onClick={() => setShowActions(false)}
-        >
-          <div
-            className="absolute w-[380px] max-h-[65vh] rounded-xl border p-1.5 overflow-y-auto custom-scrollbar"
-            style={
-              isGlassyTheme
-                ? {
-                    right: '12px',
-                    bottom: '52px',
-                    maxWidth: 'calc(100vw - 24px)',
-                    background:
-                      'linear-gradient(160deg, rgba(var(--on-surface-rgb), 0.08), rgba(var(--on-surface-rgb), 0.01)), rgba(var(--surface-base-rgb), 0.42)',
-                    backdropFilter: 'blur(96px) saturate(190%)',
-                    WebkitBackdropFilter: 'blur(96px) saturate(190%)',
-                    borderColor: 'rgba(var(--on-surface-rgb), 0.05)',
-                  }
-                : {
-                    right: '12px',
-                    bottom: '52px',
-                    maxWidth: 'calc(100vw - 24px)',
-                    background: 'var(--card-bg)',
-                    backdropFilter: 'blur(40px)',
-                    WebkitBackdropFilter: 'blur(40px)',
-                    borderColor: 'var(--border-primary)',
-                  }
-            }
-            onClick={(e) => e.stopPropagation()}
-          >
-            {selectedActions.length === 0 ? (
-              <div className="px-2.5 py-1.5 text-white/45 text-[13px]">No actions</div>
-            ) : (
-              selectedActions.map((action, index) => (
-                <button
-                  key={action.title}
-                  type="button"
-                  onClick={async () => {
-                    await Promise.resolve(action.execute());
-                    setShowActions(false);
-                  }}
-                  onMouseEnter={() => setSelectedActionIndex(index)}
-                  onMouseMove={() => setSelectedActionIndex(index)}
-                  className={`w-full px-2.5 py-1.5 rounded-md border border-transparent text-left flex items-center justify-between transition-colors ${
-                    index === selectedActionIndex
-                      ? 'bg-white/[0.18] text-white'
-                      : 'text-white/80 hover:bg-white/[0.08]'
-                  }`}
-                  style={
-                    index === selectedActionIndex
-                      ? {
-                          background: 'var(--action-menu-selected-bg)',
-                          borderColor: 'var(--action-menu-selected-border)',
-                          boxShadow: 'var(--action-menu-selected-shadow)',
-                        }
-                      : undefined
-                  }
-                >
-                  <span className="text-[13px]">{action.title}</span>
-                  <span className="text-[11px] text-white/40">{action.shortcut}</span>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      ) : null}
+      {showActions && (
+        <InternalActionPanelOverlay
+          actions={selectedActions}
+          onClose={() => setShowActions(false)}
+          onExecute={(action) => action.execute()}
+        />
+      )}
     </div>
   );
 };

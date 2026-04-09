@@ -1,21 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Camera, Image, RefreshCw, RotateCcw, Settings, Video, X } from 'lucide-react';
 import ExtensionActionFooter from './components/ExtensionActionFooter';
+import type { ExtractedAction, ActionShortcut } from './raycast-api/action-runtime-types';
+import { KeyModifier } from './raycast-api/action-runtime-types';
+import { InternalActionPanelOverlay } from './raycast-api';
 
 interface CameraExtensionProps {
   onClose: () => void;
 }
 
 type CameraPermissionState = 'checking' | 'granted' | 'denied' | 'error';
-
-interface CameraAction {
-  title: string;
-  icon: React.ReactNode;
-  shortcut?: string[];
-  execute: () => void | Promise<void>;
-  disabled?: boolean;
-  style?: 'default' | 'destructive';
-}
 
 type CaptureStatus = {
   kind: 'success' | 'neutral';
@@ -77,7 +71,6 @@ const CameraExtension: React.FC<CameraExtensionProps> = ({ onClose }) => {
   const [activeDeviceId, setActiveDeviceId] = useState('');
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [showActions, setShowActions] = useState(false);
-  const [selectedActionIndex, setSelectedActionIndex] = useState(0);
   const [capturePreviewDataUrl, setCapturePreviewDataUrl] = useState<string | null>(null);
   const [capturePreviewVisible, setCapturePreviewVisible] = useState(false);
   const [captureStatus, setCaptureStatus] = useState<CaptureStatus | null>(null);
@@ -87,7 +80,6 @@ const CameraExtension: React.FC<CameraExtensionProps> = ({ onClose }) => {
 
   const rootRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const actionMenuRef = useRef<HTMLDivElement>(null);
   const captureNoticeTimerRef = useRef<number | null>(null);
   const flashTimerRef = useRef<number | null>(null);
   const capturePreviewFadeTimerRef = useRef<number | null>(null);
@@ -298,7 +290,7 @@ const CameraExtension: React.FC<CameraExtensionProps> = ({ onClose }) => {
     }, 5000);
     capturePreviewClearTimerRef.current = window.setTimeout(() => {
       setCapturePreviewDataUrl(null);
-      setCapturePreviewClearTimerRef.current = null;
+      capturePreviewClearTimerRef.current = null;
     }, 5300);
     setFlashVisible(true);
     if (flashTimerRef.current != null) {
@@ -397,8 +389,6 @@ const CameraExtension: React.FC<CameraExtensionProps> = ({ onClose }) => {
       refocusCameraRoot();
       return;
     }
-    setSelectedActionIndex(0);
-    window.setTimeout(() => actionMenuRef.current?.focus(), 0);
   }, [refocusCameraRoot, showActions]);
 
   const selectedCameraLabel = useMemo(() => {
@@ -407,12 +397,12 @@ const CameraExtension: React.FC<CameraExtensionProps> = ({ onClose }) => {
     return active?.label || `Camera ${Math.max(1, cameraDevices.findIndex((d) => d.deviceId === activeDeviceId) + 1)}`;
   }, [activeDeviceId, cameraDevices]);
 
-  const actions = useMemo<CameraAction[]>(
+  const actions: ExtractedAction[] = useMemo(
     () => [
       {
         title: 'Take Picture',
         icon: <Camera className="w-4 h-4" />,
-        shortcut: ['↩'],
+        shortcut: { key: 'enter' },
         execute: () => {
           void handleTakePicture();
         },
@@ -421,7 +411,7 @@ const CameraExtension: React.FC<CameraExtensionProps> = ({ onClose }) => {
       {
         title: 'Flip Camera',
         icon: <RotateCcw className="w-4 h-4" />,
-        shortcut: ['⌘', 'F'],
+        shortcut: { modifiers: [KeyModifier.Cmd], key: 'f' },
         execute: () => {
           handleFlipCamera();
         },
@@ -430,7 +420,7 @@ const CameraExtension: React.FC<CameraExtensionProps> = ({ onClose }) => {
       {
         title: 'Switch Camera',
         icon: <RefreshCw className="w-4 h-4" />,
-        shortcut: ['⌘', '⇧', 'F'],
+        shortcut: { modifiers: [KeyModifier.Cmd, KeyModifier.Shift], key: 'f' },
         execute: () => {
           void handleSwitchCamera();
         },
@@ -439,7 +429,7 @@ const CameraExtension: React.FC<CameraExtensionProps> = ({ onClose }) => {
       {
         title: 'Open Last Capture in Preview',
         icon: <Image className="w-4 h-4" />,
-        shortcut: ['⌘', 'O'],
+        shortcut: { modifiers: [KeyModifier.Cmd], key: 'o' },
         execute: () => {
           void handleOpenLastCapture();
         },
@@ -448,7 +438,7 @@ const CameraExtension: React.FC<CameraExtensionProps> = ({ onClose }) => {
       {
         title: 'Close',
         icon: <X className="w-4 h-4" />,
-        shortcut: ['⌘', 'W'],
+        shortcut: { modifiers: [KeyModifier.Cmd], key: 'w' },
         execute: closeCamera,
         style: 'destructive',
       },
@@ -461,16 +451,16 @@ const CameraExtension: React.FC<CameraExtensionProps> = ({ onClose }) => {
     label: string;
     onClick: () => void;
     disabled: boolean;
-    shortcut: string[];
+    shortcut: ActionShortcut;
   } = {
     label: captureAction.title,
     onClick: () => executeAction(captureAction),
     disabled: Boolean(captureAction.disabled),
-    shortcut: captureAction.shortcut || ['↩'],
+    shortcut: captureAction.shortcut || { key: 'enter' },
   };
 
   const executeAction = useCallback(
-    (action: CameraAction) => {
+    (action: ExtractedAction) => {
       if (action.disabled) return;
       setShowActions(false);
       void Promise.resolve(action.execute());
@@ -496,28 +486,7 @@ const CameraExtension: React.FC<CameraExtensionProps> = ({ onClose }) => {
         return;
       }
 
-      if (showActions) {
-        if (event.key === 'ArrowDown') {
-          event.preventDefault();
-          setSelectedActionIndex((prev) => Math.min(prev + 1, actions.length - 1));
-          return;
-        }
-        if (event.key === 'ArrowUp') {
-          event.preventDefault();
-          setSelectedActionIndex((prev) => Math.max(prev - 1, 0));
-          return;
-        }
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          setShowActions(false);
-          return;
-        }
-        if (isPlainEnter && actions[selectedActionIndex]) {
-          event.preventDefault();
-          executeAction(actions[selectedActionIndex]);
-          return;
-        }
-      }
+      if (showActions) return;
 
       if (event.metaKey && key === 'f' && !event.repeat) {
         event.preventDefault();
@@ -554,7 +523,7 @@ const CameraExtension: React.FC<CameraExtensionProps> = ({ onClose }) => {
         closeCamera();
       }
     },
-    [actions, captureAction, closeCamera, executeAction, handleFlipCamera, handleOpenLastCapture, handleSwitchCamera, selectedActionIndex, showActions]
+    [actions, captureAction, closeCamera, executeAction, handleFlipCamera, handleOpenLastCapture, handleSwitchCamera, showActions]
   );
 
   useEffect(() => {
@@ -708,67 +677,17 @@ const CameraExtension: React.FC<CameraExtensionProps> = ({ onClose }) => {
         actionsButton={{
           label: 'Actions',
           onClick: () => setShowActions(true),
-          shortcut: ['⌘', 'K'],
+          shortcut: { modifiers: [KeyModifier.Cmd], key: 'k' },
         }}
       />
 
-      {showActions ? (
-        <div
-          className="fixed inset-0 z-50"
-          style={{ background: 'var(--bg-scrim)' }}
-          onClick={() => setShowActions(false)}
-        >
-          <div
-            ref={actionMenuRef}
-            className="absolute bottom-12 right-3 w-72 rounded-xl border border-[var(--ui-divider)] bg-[var(--card-bg)] backdrop-blur-xl shadow-2xl p-1 outline-none"
-            onClick={(event) => event.stopPropagation()}
-            tabIndex={-1}
-          >
-            {actions.map((action, index) => {
-              const selected = index === selectedActionIndex;
-              return (
-                <button
-                  key={action.title}
-                  type="button"
-                  disabled={action.disabled}
-                  onMouseMove={() => setSelectedActionIndex(index)}
-                  onClick={() => executeAction(action)}
-                  className={`w-full text-left px-2.5 py-2 rounded-lg flex items-center gap-2.5 transition-colors ${
-                    selected
-                      ? 'bg-[var(--action-menu-selected-bg)] border border-[var(--action-menu-selected-border)]'
-                      : 'hover:bg-[var(--overlay-item-hover-bg)] border border-transparent'
-                  } ${
-                    action.disabled
-                      ? 'opacity-45 cursor-not-allowed'
-                      : ''
-                  }`}
-                >
-                  <span className={action.style === 'destructive' ? 'text-red-400' : 'text-[var(--text-muted)]'}>
-                    {action.icon}
-                  </span>
-                  <span
-                    className={`flex-1 text-[13px] ${
-                      action.style === 'destructive' ? 'text-red-400' : 'text-[var(--text-primary)]'
-                    }`}
-                  >
-                    {action.title}
-                  </span>
-                  <span className="flex items-center gap-0.5 text-[var(--text-subtle)]">
-                    {(action.shortcut || []).map((shortcutKey) => (
-                      <kbd
-                        key={`${action.title}-${shortcutKey}`}
-                        className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded bg-[var(--kbd-bg)] text-[10px] font-medium"
-                      >
-                        {shortcutKey}
-                      </kbd>
-                    ))}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
+      {showActions && (
+        <InternalActionPanelOverlay
+          actions={actions}
+          onClose={() => setShowActions(false)}
+          onExecute={(action) => action.execute()}
+        />
+      )}
     </div>
   );
 };

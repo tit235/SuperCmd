@@ -185,6 +185,7 @@ export function createActionRegistryRuntime(deps: RegistryDeps) {
   } = deps;
 
   let actionOrderCounter = 0;
+  let sectionOrderCounter = 0;
 
   const ActionRegistryContext = createContext<ActionRegistryAPI | null>(null);
   const ActionSectionContext = createContext<string | undefined>(undefined);
@@ -322,7 +323,7 @@ export function createActionRegistryRuntime(deps: RegistryDeps) {
         icon: props.icon,
         shortcut: normalizeShortcut(props.shortcut),
         style: props.style,
-        sectionTitle,
+        section: sectionTitle ? { id: `__section_${++sectionOrderCounter}`, title: sectionTitle } : undefined,
         execute: executor,
         order: orderRef.current,
       });
@@ -347,7 +348,7 @@ export function createActionRegistryRuntime(deps: RegistryDeps) {
       queueMicrotask(() => {
         pendingRef.current = false;
         const entries = Array.from(registryRef.current.values());
-        const snapshot = entries.map((entry) => `${entry.id}:${entry.title}:${entry.sectionTitle || ''}`).join('|');
+        const snapshot = entries.map((entry) => `${entry.id}:${entry.title}:${entry.section?.title || ''}`).join('|');
         if (snapshot !== lastSnapshotRef.current) {
           lastSnapshotRef.current = snapshot;
           setVersion((value) => value + 1);
@@ -364,7 +365,7 @@ export function createActionRegistryRuntime(deps: RegistryDeps) {
             existing.icon = data.icon;
             existing.shortcut = data.shortcut;
             existing.style = data.style;
-            existing.sectionTitle = data.sectionTitle;
+            existing.section = data.section;
             existing.execute = data.execute;
             existing.order = data.order;
           } else {

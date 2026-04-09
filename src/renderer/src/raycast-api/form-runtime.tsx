@@ -12,7 +12,7 @@ import {
   setCurrentFormErrors,
   setCurrentFormValues,
 } from './form-runtime-context';
-import type { ExtractedAction } from './action-runtime';
+import type { ExtractedAction, ActionShortcut } from './action-runtime-types';
 
 interface FormRuntimeDeps {
   ExtensionInfoReactContext: React.Context<any>;
@@ -24,9 +24,9 @@ interface FormRuntimeDeps {
     onClose: () => void;
     onExecute: (action: ExtractedAction) => void;
   }>;
-  matchesShortcut: (event: React.KeyboardEvent | KeyboardEvent, shortcut?: { modifiers?: string[]; key?: string }) => boolean;
+  matchesShortcut: (event: React.KeyboardEvent | KeyboardEvent, shortcut?: ActionShortcut) => boolean;
   isMetaK: (event: React.KeyboardEvent | KeyboardEvent) => boolean;
-  renderShortcut: (shortcut?: { modifiers?: string[]; key?: string }) => React.ReactNode;
+  renderShortcut: (shortcut?: ActionShortcut) => React.ReactNode;
   getExtensionContext: () => {
     extensionDisplayName?: string;
     extensionName: string;

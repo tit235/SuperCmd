@@ -7,18 +7,14 @@ import type {
   CalendarEventsResult,
   CalendarPermissionResult,
 } from '../types/electron';
+import type { ExtractedAction, ActionShortcut } from './raycast-api/action-runtime-types';
+import { KeyModifier } from './raycast-api/action-runtime-types';
+import { InternalActionPanelOverlay } from './raycast-api';
 
 interface ScheduleExtensionProps {
   onClose: () => void;
 }
 
-interface ActionItem {
-  title: string;
-  icon?: React.ReactNode;
-  shortcut?: string[];
-  disabled?: boolean;
-  execute: () => void | Promise<void>;
-}
 
 const PAGE_DAYS = 14;
 const HORIZON_DAYS = 365;
@@ -147,12 +143,10 @@ const ScheduleExtension: React.FC<ScheduleExtensionProps> = ({ onClose }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [showActions, setShowActions] = useState(false);
-  const [selectedActionIndex, setSelectedActionIndex] = useState(0);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const actionsOverlayRef = useRef<HTMLDivElement>(null);
   const initializedRef = useRef(false);
 
   const isGlassyTheme =
@@ -277,11 +271,7 @@ const ScheduleExtension: React.FC<ScheduleExtensionProps> = ({ onClose }) => {
     }
   }, [selectedIndex]);
 
-  useEffect(() => {
-    if (!showActions) return;
-    setSelectedActionIndex(0);
-    setTimeout(() => actionsOverlayRef.current?.focus(), 0);
-  }, [showActions]);
+
 
   const selectedEntry = flatRows[selectedIndex] || null;
   const selectedDayDate = selectedEntry?.group.date || null;
@@ -330,7 +320,7 @@ const ScheduleExtension: React.FC<ScheduleExtensionProps> = ({ onClose }) => {
     }
   }, [dayGroups.length, horizonEnd, isLoading, isLoadingMore, loadMore, loadedUntil, permissionError]);
 
-  const actions: ActionItem[] = permissionError
+  const actions: ExtractedAction[] = permissionError
     ? [
         {
           title: 'Open Calendar Privacy Settings',
@@ -342,7 +332,7 @@ const ScheduleExtension: React.FC<ScheduleExtensionProps> = ({ onClose }) => {
         {
           title: 'Open in Calendar',
           icon: <ExternalLink className="w-4 h-4" />,
-          shortcut: ['↩'],
+          shortcut: { key: 'enter' },
           execute: openCalendarApp,
         },
       ];
@@ -355,33 +345,7 @@ const ScheduleExtension: React.FC<ScheduleExtensionProps> = ({ onClose }) => {
         return;
       }
 
-      if (showActions) {
-        if (event.key === 'ArrowDown') {
-          event.preventDefault();
-          setSelectedActionIndex((current) => Math.min(current + 1, actions.length - 1));
-          return;
-        }
-        if (event.key === 'ArrowUp') {
-          event.preventDefault();
-          setSelectedActionIndex((current) => Math.max(current - 1, 0));
-          return;
-        }
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          const action = actions[selectedActionIndex];
-          if (action && !action.disabled) {
-            void Promise.resolve(action.execute());
-          }
-          setShowActions(false);
-          return;
-        }
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          setShowActions(false);
-          return;
-        }
-        return;
-      }
+      if (showActions) return;
 
       switch (event.key) {
         case 'ArrowDown':
@@ -404,7 +368,7 @@ const ScheduleExtension: React.FC<ScheduleExtensionProps> = ({ onClose }) => {
           break;
       }
     },
-    [actions, flatRows.length, onClose, openCalendarApp, permissionError, selectedActionIndex, selectedEntry, showActions]
+    [actions, flatRows.length, onClose, openCalendarApp, permissionError, selectedEntry, showActions]
   );
 
   const todaySummary = todayEvents.length > 0
@@ -549,95 +513,22 @@ const ScheduleExtension: React.FC<ScheduleExtensionProps> = ({ onClose }) => {
             : {
                 label: 'Open in Calendar',
                 onClick: () => void openCalendarApp(),
-                shortcut: ['↩'],
+                shortcut: { key: 'enter' },
               }
         }
         actionsButton={{
           label: 'Actions',
           onClick: () => setShowActions(true),
-          shortcut: ['⌘', 'K'],
+          shortcut: { modifiers: [KeyModifier.Cmd], key: 'k' },
         }}
       />
 
       {showActions && (
-        <div
-          className="fixed inset-0 z-50"
-          onClick={() => setShowActions(false)}
-          style={{ background: 'var(--bg-scrim)' }}
-        >
-          <div
-            ref={actionsOverlayRef}
-            className="absolute bottom-12 right-3 w-80 max-h-[65vh] rounded-xl overflow-hidden flex flex-col shadow-2xl outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0"
-            tabIndex={0}
-            style={
-              isNativeLiquidGlass
-                ? {
-                    background: 'rgba(var(--surface-base-rgb), 0.72)',
-                    backdropFilter: 'blur(44px) saturate(155%)',
-                    WebkitBackdropFilter: 'blur(44px) saturate(155%)',
-                    border: '1px solid rgba(var(--on-surface-rgb), 0.22)',
-                    boxShadow: '0 18px 38px -12px rgba(var(--backdrop-rgb), 0.26)',
-                  }
-                : isGlassyTheme
-                  ? {
-                      background: 'linear-gradient(160deg, rgba(var(--on-surface-rgb), 0.08), rgba(var(--on-surface-rgb), 0.01)), rgba(var(--surface-base-rgb), 0.42)',
-                      backdropFilter: 'blur(96px) saturate(190%)',
-                      WebkitBackdropFilter: 'blur(96px) saturate(190%)',
-                      border: '1px solid rgba(var(--on-surface-rgb), 0.05)',
-                    }
-                  : {
-                      background: 'var(--card-bg)',
-                      backdropFilter: 'blur(40px)',
-                      WebkitBackdropFilter: 'blur(40px)',
-                      border: '1px solid var(--border-primary)',
-                    }
-            }
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex-1 overflow-y-auto py-1">
-              {actions.map((action, index) => (
-                <div
-                  key={`${action.title}-${index}`}
-                  className={`mx-1 px-2.5 py-1.5 rounded-lg border border-transparent flex items-center gap-2.5 cursor-pointer transition-colors ${
-                    index === selectedActionIndex
-                      ? 'bg-[var(--action-menu-selected-bg)] text-[var(--text-primary)]'
-                      : 'hover:bg-[var(--overlay-item-hover-bg)] text-[var(--text-secondary)]'
-                  } ${action.disabled ? 'opacity-45 cursor-not-allowed' : ''}`}
-                  style={
-                    index === selectedActionIndex
-                      ? {
-                          background: 'var(--action-menu-selected-bg)',
-                          borderColor: 'var(--action-menu-selected-border)',
-                          boxShadow: 'var(--action-menu-selected-shadow)',
-                        }
-                      : undefined
-                  }
-                  onMouseMove={() => setSelectedActionIndex(index)}
-                  onClick={() => {
-                    if (action.disabled) return;
-                    void Promise.resolve(action.execute());
-                    setShowActions(false);
-                  }}
-                >
-                  {action.icon ? <span className="text-[var(--text-muted)]">{action.icon}</span> : null}
-                  <span className="flex-1 text-sm truncate">{action.title}</span>
-                  {action.shortcut ? (
-                    <span className="flex items-center gap-0.5">
-                      {action.shortcut.map((key, keyIndex) => (
-                        <kbd
-                          key={`${action.title}-${key}-${keyIndex}`}
-                          className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded bg-[var(--kbd-bg)] text-[11px] font-medium text-[var(--text-muted)]"
-                        >
-                          {key}
-                        </kbd>
-                      ))}
-                    </span>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <InternalActionPanelOverlay
+          actions={actions}
+          onClose={() => setShowActions(false)}
+          onExecute={(action) => action.execute()}
+        />
       )}
     </div>
   );

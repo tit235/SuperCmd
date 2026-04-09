@@ -24,6 +24,9 @@ import {
 } from 'lucide-react';
 import type { Note, NoteTheme } from '../types/electron';
 import ExtensionActionFooter from './components/ExtensionActionFooter';
+import type { ExtractedAction, ActionShortcut } from './raycast-api/action-runtime-types';
+import { KeyModifier } from './raycast-api/action-runtime-types';
+import { InternalActionPanelOverlay } from './raycast-api';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -31,16 +34,6 @@ interface NotesManagerProps {
   initialView: 'search' | 'create';
 }
 
-interface Action {
-  title: string;
-  icon?: React.ReactNode;
-  shortcut?: string[];
-  execute: () => void | Promise<void>;
-  style?: 'default' | 'destructive';
-  section?: string;
-  submenu?: Action[];
-  disabled?: boolean;
-}
 
 type BlockType = 'paragraph' | 'h1' | 'h2' | 'h3' | 'bullet' | 'ordered' | 'checkbox' | 'code' | 'blockquote' | 'divider';
 
@@ -1471,9 +1464,9 @@ const EditorView: React.FC<EditorViewProps> = ({
           primaryAction={{
             label: showToolbar ? 'Hide Format' : 'Format',
             onClick: () => setShowToolbar(p => !p),
-            shortcut: ['⌥', '⌘', ','],
+            shortcut: { modifiers: [KeyModifier.Opt, KeyModifier.Cmd], key: ',' },
           }}
-          actionsButton={{ label: 'Actions', onClick: onShowActions, shortcut: ['⌘', 'K'] }}
+          actionsButton={{ label: 'Actions', onClick: onShowActions, shortcut: { modifiers: [KeyModifier.Cmd], key: 'k' } }}
         />
       </div>
     </div>
@@ -1668,8 +1661,8 @@ const SearchView: React.FC<SearchViewProps> = ({
             <span className="truncate">Search Notes</span>
           </span>
         }
-        primaryAction={selectedNote ? { label: 'Open Note', onClick: () => onOpenNote(selectedNote), shortcut: ['↩'] } : undefined}
-        actionsButton={{ label: 'Actions', onClick: onShowActions, shortcut: ['⌘', 'K'] }}
+        primaryAction={selectedNote ? { label: 'Open Note', onClick: () => onOpenNote(selectedNote), shortcut: { key: 'enter' } } : undefined}
+        actionsButton={{ label: 'Actions', onClick: onShowActions, shortcut: { modifiers: [KeyModifier.Cmd], key: 'k' } }}
       />
     </div>
   );
@@ -1783,169 +1776,7 @@ const BrowseOverlay: React.FC<BrowseOverlayProps> = ({ notes, currentNoteId, onS
   );
 };
 
-// ─── Actions Overlay ─────────────────────────────────────────────────
 
-interface ActionsOverlayProps {
-  actions: Action[];
-  onClose: () => void;
-}
-
-const ActionsOverlay: React.FC<ActionsOverlayProps> = ({ actions, onClose }) => {
-  const [query, setQuery] = useState('');
-  const [selectedIdx, setSelectedIdx] = useState(0);
-  const [submenuActions, setSubmenuActions] = useState<Action[] | null>(null);
-  const [submenuSelectedIdx, setSubmenuSelectedIdx] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-
-  const filtered = useMemo(() => {
-    if (!query.trim()) return actions;
-    const q = query.toLowerCase();
-    return actions.filter(a => a.title.toLowerCase().includes(q));
-  }, [actions, query]);
-
-  useEffect(() => { setSelectedIdx(0); }, [query]);
-  useEffect(() => { inputRef.current?.focus(); }, []);
-  useEffect(() => {
-    const items = listRef.current?.querySelectorAll('[data-action-item]');
-    const item = items?.[selectedIdx] as HTMLElement;
-    item?.scrollIntoView({ block: 'nearest' });
-  }, [selectedIdx]);
-
-  const executeAction = useCallback((action: Action) => {
-    if (action.submenu && action.submenu.length > 0) {
-      setSubmenuActions(action.submenu);
-      setSubmenuSelectedIdx(0);
-    } else if (!action.disabled) {
-      action.execute();
-    }
-  }, []);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (submenuActions) {
-        if (e.key === 'Escape' || e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); setSubmenuActions(null); inputRef.current?.focus(); return; }
-        if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setSubmenuSelectedIdx(i => Math.min(i + 1, submenuActions.length - 1)); return; }
-        if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setSubmenuSelectedIdx(i => Math.max(0, i - 1)); return; }
-        if (e.key === 'Enter' && submenuActions[submenuSelectedIdx]) { e.preventDefault(); e.stopPropagation(); submenuActions[submenuSelectedIdx].execute(); return; }
-        return;
-      }
-
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); return; }
-      if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIdx(i => Math.min(i + 1, filtered.length - 1)); return; }
-      if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIdx(i => Math.max(0, i - 1)); return; }
-      if (e.key === 'Enter' || e.key === 'ArrowRight') {
-        if (filtered[selectedIdx]) { e.preventDefault(); e.stopPropagation(); executeAction(filtered[selectedIdx]); return; }
-      }
-
-      if (e.metaKey || e.ctrlKey) {
-        for (const action of actions) {
-          if (!action.shortcut) continue;
-          const keys = action.shortcut;
-          const needsShift = keys.includes('⇧');
-          const needsCtrl = keys.includes('^');
-          const lastKey = keys[keys.length - 1];
-          if (needsCtrl && e.ctrlKey && e.key.toLowerCase() === lastKey.toLowerCase()) {
-            e.preventDefault(); e.stopPropagation(); executeAction(action); return;
-          }
-          if (!needsCtrl && (e.metaKey || e.ctrlKey) && e.shiftKey === needsShift && e.key.toLowerCase() === lastKey.toLowerCase()) {
-            e.preventDefault(); e.stopPropagation(); executeAction(action); return;
-          }
-        }
-      }
-    };
-    window.addEventListener('keydown', handler, true);
-    return () => window.removeEventListener('keydown', handler, true);
-  }, [filtered, selectedIdx, onClose, actions, submenuActions, submenuSelectedIdx, executeAction]);
-
-  const groupedActions = useMemo(() => {
-    const groups: Array<{ section: string; actions: Action[] }> = [];
-    let currentSection = '';
-    for (const action of filtered) {
-      const section = action.section || '';
-      if (section !== currentSection) { groups.push({ section, actions: [] }); currentSection = section; }
-      groups[groups.length - 1].actions.push(action);
-    }
-    return groups;
-  }, [filtered]);
-
-  let flatIdx = 0;
-  const panel = getMenuPanelStyle();
-
-  return (
-    <div className="fixed inset-0 z-[9999]" style={{ background: 'var(--bg-scrim)' }}>
-      <div className="absolute inset-0" onClick={onClose} />
-      <div
-        className={`absolute bottom-12 right-3 w-80 max-h-[65vh] overflow-hidden flex flex-col ${panel.className}`}
-        style={panel.style}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {submenuActions ? (
-          <>
-            <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--ui-divider)]">
-              <button onClick={() => setSubmenuActions(null)} className="text-[var(--text-subtle)] hover:text-[var(--text-muted)] transition-colors">
-                <span className="text-[12px]">←</span>
-              </button>
-              <span className="text-[13px] text-[var(--text-muted)]">{filtered[selectedIdx]?.title}</span>
-            </div>
-            <div className="flex-1 overflow-y-auto custom-scrollbar py-1">
-              {submenuActions.map((sub, si) => (
-                <div key={si} data-action-item
-                  onClick={() => sub.execute()}
-                  onMouseEnter={() => setSubmenuSelectedIdx(si)}
-                  className="flex items-center gap-3 px-3 py-[7px] cursor-pointer transition-colors text-[var(--text-secondary)]"
-                  style={si === submenuSelectedIdx ? { background: 'rgba(255,255,255,0.08)' } : undefined}
-                >
-                  <span className="flex-shrink-0 w-5 h-5 flex items-center justify-center opacity-60">{sub.icon}</span>
-                  <span className="flex-1 text-[12px]">{sub.title}</span>
-                </div>
-              ))}
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="px-3 py-2.5 border-b border-[var(--ui-divider)]">
-              <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search for actions..."
-                className="w-full bg-transparent text-[var(--text-primary)] text-[13px] placeholder:text-[var(--text-subtle)] outline-none" />
-            </div>
-            <div ref={listRef} className="flex-1 overflow-y-auto custom-scrollbar py-1">
-              {groupedActions.map((group, gi) => (
-                <div key={group.section || `__${gi}`}>
-                  {gi > 0 && <hr className="border-[var(--ui-divider)] my-0.5" />}
-                  {group.actions.map((action) => {
-                    const idx = flatIdx++;
-                    return (
-                      <div key={idx} data-action-item
-                        onClick={() => executeAction(action)}
-                        onMouseEnter={() => setSelectedIdx(idx)}
-                        className={`flex items-center gap-3 px-3 py-[7px] cursor-pointer transition-colors ${action.style === 'destructive' ? 'text-red-400' : action.disabled ? 'text-[var(--text-disabled)]' : 'text-[var(--text-secondary)]'}`}
-                        style={idx === selectedIdx ? { background: 'rgba(255,255,255,0.08)' } : undefined}
-                      >
-                        <span className="flex-shrink-0 w-5 h-5 flex items-center justify-center opacity-60">{action.icon}</span>
-                        <span className="flex-1 text-[12px]">{action.title}</span>
-                        {action.shortcut && (
-                          <span className="flex items-center gap-0.5 flex-shrink-0">
-                            {action.shortcut.map((k, ki) => (
-                              <kbd key={ki} className="inline-flex items-center justify-center min-w-[20px] h-[18px] px-1 rounded bg-[var(--kbd-bg)] text-[10px] text-[var(--text-subtle)] font-medium">
-                                {k}
-                              </kbd>
-                            ))}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-              {filtered.length === 0 && <div className="px-3 py-4 text-center text-[11px] text-[var(--text-disabled)]">No actions found</div>}
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-};
 
 // ─── Main Component ──────────────────────────────────────────────────
 
@@ -2076,24 +1907,24 @@ const NotesManager: React.FC<NotesManagerProps> = ({ initialView }) => {
 
   // ─── Actions ─────────────────────────────────────────────────────
 
-  const actions: Action[] = useMemo(() => {
-    const a: Action[] = [];
-    a.push({ title: 'New Note', icon: <Plus size={14} />, shortcut: ['⌘', 'N'], section: 'actions', execute: () => { handleNewNote(); setShowActions(false); } });
-    if (targetNote) a.push({ title: 'Duplicate Note', icon: <Files size={14} />, shortcut: ['⌘', 'D'], section: 'actions', execute: () => handleDuplicate() });
-    if (viewMode === 'editor') a.push({ title: 'Browse Notes', icon: <LayoutList size={14} />, shortcut: ['⌘', 'P'], section: 'actions', execute: () => { setShowBrowse(true); setShowActions(false); } });
-    if (viewMode === 'editor') a.push({ title: 'Find in Note', icon: <Search size={14} />, shortcut: ['⌘', 'F'], section: 'find', execute: () => { setShowFind(true); setShowActions(false); } });
+  const actions: ExtractedAction[] = useMemo(() => {
+    const a: ExtractedAction[] = [];
+    a.push({ title: 'New Note', icon: <Plus size={14} />, shortcut: { modifiers: [KeyModifier.Cmd], key: 'n' }, section: { id: 'notes-manager-actions' }, execute: () => { handleNewNote(); setShowActions(false); } });
+    if (targetNote) a.push({ title: 'Duplicate Note', icon: <Files size={14} />, shortcut: { modifiers: [KeyModifier.Cmd], key: 'd' }, section: { id: 'notes-manager-actions' }, execute: () => handleDuplicate() });
+    if (viewMode === 'editor') a.push({ title: 'Browse Notes', icon: <LayoutList size={14} />, shortcut: { modifiers: [KeyModifier.Cmd], key: 'p' }, section: { id: 'notes-manager-actions' }, execute: () => { setShowBrowse(true); setShowActions(false); } });
+    if (viewMode === 'editor') a.push({ title: 'Find in Note', icon: <Search size={14} />, shortcut: { modifiers: [KeyModifier.Cmd], key: 'f' }, section: { id: 'notes-manager-find' }, execute: () => { setShowFind(true); setShowActions(false); } });
     if (targetNote) {
-      a.push({ title: 'Copy Note As...', icon: <Copy size={14} />, shortcut: ['⇧', '⌘', 'C'], section: 'copy', execute: () => {}, submenu: [
+      a.push({ title: 'Copy Note As...', icon: <Copy size={14} />, shortcut: { modifiers: [KeyModifier.Shift, KeyModifier.Cmd], key: 'c' }, section: { id: 'notes-manager-copy', title: 'Copy' }, execute: () => {}, submenu: [
         { title: 'Copy as Markdown', icon: <Copy size={14} />, execute: async () => { await window.electron.noteCopyToClipboard(targetNote.id, 'markdown'); setShowActions(false); } },
         { title: 'Copy as HTML', icon: <Copy size={14} />, execute: async () => { await window.electron.noteCopyToClipboard(targetNote.id, 'html'); setShowActions(false); } },
         { title: 'Copy as Plain Text', icon: <Copy size={14} />, execute: async () => { await window.electron.noteCopyToClipboard(targetNote.id, 'plaintext'); setShowActions(false); } },
       ] });
-      a.push({ title: 'Copy Deeplink', icon: <Link2 size={14} />, shortcut: ['⇧', '⌘', 'D'], section: 'copy', execute: async () => { await navigator.clipboard.writeText(`supercmd://notes/${targetNote.id}`); setShowActions(false); } });
-      a.push({ title: 'Export...', icon: <Upload size={14} />, shortcut: ['⇧', '⌘', 'E'], section: 'copy', execute: () => handleExport() });
+      a.push({ title: 'Copy Deeplink', icon: <Link2 size={14} />, shortcut: { modifiers: [KeyModifier.Shift, KeyModifier.Cmd], key: 'd' }, section: { id: 'notes-manager-copy', title: 'Copy' }, execute: async () => { await navigator.clipboard.writeText(`supercmd://notes/${targetNote.id}`); setShowActions(false); } });
+      a.push({ title: 'Export...', icon: <Upload size={14} />, shortcut: { modifiers: [KeyModifier.Shift, KeyModifier.Cmd], key: 'e' }, section: { id: 'notes-manager-copy', title: 'Copy' }, execute: () => handleExport() });
     }
-    if (targetNote) a.push({ title: targetNote.pinned ? 'Unpin Note' : 'Pin Note', icon: targetNote.pinned ? <PinOff size={14} /> : <Pin size={14} />, shortcut: ['⇧', '⌘', 'P'], section: 'settings', execute: () => handleTogglePin() });
-    a.push({ title: 'Import Notes', icon: <Download size={14} />, section: 'settings', execute: async () => { await window.electron.noteImport(); loadNotes(); setShowActions(false); } });
-    a.push({ title: 'Export All Notes', icon: <Upload size={14} />, section: 'settings', execute: async () => { await window.electron.noteExport(); setShowActions(false); } });
+    if (targetNote) a.push({ title: targetNote.pinned ? 'Unpin Note' : 'Pin Note', icon: targetNote.pinned ? <PinOff size={14} /> : <Pin size={14} />, shortcut: { modifiers: [KeyModifier.Shift, KeyModifier.Cmd], key: 'p' }, section: { id: 'notes-manager-settings', title: 'Settings' }, execute: () => handleTogglePin() });
+    a.push({ title: 'Import Notes', icon: <Download size={14} />, section: { id: 'notes-manager-settings', title: 'Settings' }, execute: async () => { await window.electron.noteImport(); loadNotes(); setShowActions(false); } });
+    a.push({ title: 'Export All Notes', icon: <Upload size={14} />, section: { id: 'notes-manager-settings', title: 'Settings' }, execute: async () => { await window.electron.noteExport(); setShowActions(false); } });
     return a;
   }, [targetNote, viewMode, loadNotes, handleNewNote, handleDuplicate, handleTogglePin, handleExport, notes]);
 
@@ -2223,7 +2054,13 @@ const NotesManager: React.FC<NotesManagerProps> = ({ initialView }) => {
         />
       )}
 
-      {showActions && <ActionsOverlay actions={actions} onClose={() => setShowActions(false)} />}
+      {showActions && (
+        <InternalActionPanelOverlay
+          actions={actions}
+          onClose={() => setShowActions(false)}
+          onExecute={(action) => action.execute()}
+        />
+      )}
 
       {confirmDelete && targetNote && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>

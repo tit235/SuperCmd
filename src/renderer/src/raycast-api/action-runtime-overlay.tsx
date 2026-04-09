@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import type { ExtractedAction } from './action-runtime-types';
+import type { ExtractedAction, ActionRegistration, ActionShortcut } from './action-runtime-types';
 import { resolveIconSrc } from './icon-runtime-assets';
 
 interface OverlayDeps {
@@ -14,9 +14,9 @@ interface OverlayDeps {
   inferActionTitle: (props: any, kind?: string) => string;
   makeActionExecutor: (props: any, runtimeCtx?: any) => () => void;
   renderIcon: (icon: any, className?: string, assetsPath?: string) => React.ReactNode;
-  matchesShortcut: (e: React.KeyboardEvent | KeyboardEvent, shortcut?: { modifiers?: string[]; key?: string }) => boolean;
+  matchesShortcut: (e: React.KeyboardEvent | KeyboardEvent, shortcut?: ActionShortcut) => boolean;
   isMetaK: (e: React.KeyboardEvent | KeyboardEvent) => boolean;
-  renderShortcut: (shortcut?: { modifiers?: string[]; key?: string }) => React.ReactNode;
+  renderShortcut: (shortcut?: ActionShortcut) => React.ReactNode;
   renderShortcutKeycap: (label: string, key?: React.Key) => React.ReactNode;
 }
 
@@ -32,13 +32,15 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
     renderShortcutKeycap,
   } = deps;
 
+  let sectionIdCounter = 0;
+
   function extractActionsFromElement(element: React.ReactElement | undefined | null): ExtractedAction[] {
     if (!element) return [];
 
     const result: ExtractedAction[] = [];
     const runtimeCtx = snapshotExtensionContext();
 
-    function walk(nodes: React.ReactNode, sectionTitle?: string) {
+    function walk(nodes: React.ReactNode, section?: { id: string; title?: string }) {
       React.Children.forEach(nodes, (child) => {
         if (!React.isValidElement(child)) return;
 
@@ -53,14 +55,25 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
             icon: props.icon,
             shortcut: props.shortcut,
             style: props.style,
-            sectionTitle,
+            section,
             execute: makeActionExecutor(props, runtimeCtx),
           });
           return;
         }
 
+        if (child.type && (child.type as any).__isSubmenu) {
+          result.push({
+            title: props.title,
+            icon: props.icon,
+            shortcut: props.shortcut,
+            execute: () => {},
+            submenu: extractActionsFromElement(child),
+          });
+          return;
+        }
+
         if (hasChildren) {
-          walk(props.children, props.title || sectionTitle);
+          walk(props.children, props.title ? { id: `__section_${++sectionIdCounter}`, title: props.title } : section);
         }
       });
     }
@@ -84,6 +97,8 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
   }) {
     const [selectedIdx, setSelectedIdx] = useState(0);
     const [filter, setFilter] = useState('');
+    const [submenuActions, setSubmenuActions] = useState<ExtractedAction[] | null>(null);
+    const [submenuSelectedIdx, setSubmenuSelectedIdx] = useState(0);
     const filterRef = useRef<HTMLInputElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
     const runtimeCtx = snapshotExtensionContext();
@@ -92,6 +107,15 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
     const filteredActions = filter
       ? actions.filter((action) => action.title.toLowerCase().includes(filter.toLowerCase()))
       : actions;
+
+    const executeAction = (action: ExtractedAction) => {
+      if (action.submenu && action.submenu.length > 0) {
+        setSubmenuActions(action.submenu);
+        setSubmenuSelectedIdx(0);
+      } else {
+        onExecute(action);
+      }
+    };
 
     const hasImageExtension = (value: string): boolean => /\.(svg|png|jpe?g|gif|webp|ico|tiff?)$/i.test(value);
 
@@ -112,7 +136,7 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
       }
 
       if (source && typeof source === 'object') {
-        const variants = [source.light, source.dark].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+        const variants = [(source as any).light, (source as any).dark].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
         if (variants.length > 0) {
           const assetLikeVariants = variants.filter((value) => hasImageExtension(value));
           if (assetLikeVariants.length === 0) return true;
@@ -135,12 +159,49 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
     }, [filter]);
 
     useEffect(() => {
-      panelRef.current
-        ?.querySelector(`[data-action-idx="${selectedIdx}"]`)
-        ?.scrollIntoView({ block: 'nearest' });
-    }, [selectedIdx]);
+      if (submenuActions) {
+        panelRef.current
+          ?.querySelector(`[data-submenu-action-idx="${submenuSelectedIdx}"]`)
+          ?.scrollIntoView({ block: 'nearest' });
+      } else {
+        panelRef.current
+          ?.querySelector(`[data-action-idx="${selectedIdx}"]`)
+          ?.scrollIntoView({ block: 'nearest' });
+      }
+    }, [selectedIdx, submenuSelectedIdx, submenuActions]);
 
     const handleKeyDown = (event: React.KeyboardEvent) => {
+      if (submenuActions) {
+        if (event.key === 'Escape' || event.key === 'ArrowLeft') {
+          event.preventDefault();
+          event.stopPropagation();
+          setSubmenuActions(null);
+          filterRef.current?.focus();
+          return;
+        }
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          event.stopPropagation();
+          setSubmenuSelectedIdx((value) => Math.min(value + 1, submenuActions.length - 1));
+          return;
+        }
+        if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          event.stopPropagation();
+          setSubmenuSelectedIdx((value) => Math.max(value - 1, 0));
+          return;
+        }
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!event.repeat && submenuActions[submenuSelectedIdx]) {
+            executeAction(submenuActions[submenuSelectedIdx]);
+          }
+          return;
+        }
+        return;
+      }
+
       if ((event.metaKey || event.altKey || event.ctrlKey) && !event.repeat) {
         if (isMetaK(event)) {
           event.preventDefault();
@@ -153,7 +214,7 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
           if (!action.shortcut || !matchesShortcut(event, action.shortcut)) continue;
           event.preventDefault();
           event.stopPropagation();
-          onExecute(action);
+          executeAction(action);
           return;
         }
       }
@@ -169,10 +230,11 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
           event.stopPropagation();
           setSelectedIdx((value) => Math.max(value - 1, 0));
           break;
+        case 'ArrowRight':
         case 'Enter':
           event.preventDefault();
           event.stopPropagation();
-          if (!event.repeat && filteredActions[selectedIdx]) onExecute(filteredActions[selectedIdx]);
+          if (!event.repeat && filteredActions[selectedIdx]) executeAction(filteredActions[selectedIdx]);
           break;
         case 'Escape':
           event.preventDefault();
@@ -184,12 +246,13 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
 
     const groups: { title?: string; items: { action: ExtractedAction; idx: number }[] }[] = [];
     let groupIndex = 0;
-    let currentTitle: string | undefined | null = null;
+    let currentSectionId: string | undefined | null = null;
 
     for (const action of filteredActions) {
-      if (action.sectionTitle !== currentTitle || groups.length === 0) {
-        currentTitle = action.sectionTitle;
-        groups.push({ title: action.sectionTitle, items: [] });
+      const sectionId = action.section?.id;
+      if (sectionId !== currentSectionId || groups.length === 0) {
+        currentSectionId = sectionId;
+        groups.push({ title: action.section?.title, items: [] });
       }
       groups[groups.length - 1].items.push({ action, idx: groupIndex++ });
     }
@@ -253,15 +316,92 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
           }
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="action-overlay-scroll flex-1 overflow-y-auto py-1">
-            {filteredActions.length === 0 ? (
+          {submenuActions ? (
+            <>
+              <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--ui-divider)]">
+                <button
+                  onClick={() => {
+                    setSubmenuActions(null);
+                    filterRef.current?.focus();
+                  }}
+                  className="text-white/40 hover:text-white/80 transition-colors"
+                >
+                  <span className="text-[12px]">←</span>
+                </button>
+                <span className="text-[13px] text-white/50">{filteredActions[selectedIdx]?.title}</span>
+              </div>
+              <div className="action-overlay-scroll flex-1 overflow-y-auto py-1">
+                {submenuActions.map((action, idx) => {
+                  const hasActionIcon = hasRenderableActionIcon(action.icon);
+                  return (
+                    <div
+                      key={idx}
+                      data-submenu-action-idx={idx}
+                      className={`mx-1 px-2.5 py-1.5 rounded-lg border border-transparent flex items-center gap-2.5 cursor-pointer transition-colors ${
+                        idx === submenuSelectedIdx
+                          ? 'bg-[var(--action-menu-selected-bg)]'
+                          : 'hover:bg-[var(--overlay-item-hover-bg)]'
+                      }`}
+                      style={
+                        idx === submenuSelectedIdx
+                          ? {
+                              background: 'var(--action-menu-selected-bg)',
+                              borderColor: 'var(--action-menu-selected-border)',
+                              boxShadow: 'var(--action-menu-selected-shadow)',
+                            }
+                          : undefined
+                      }
+                      onClick={() => executeAction(action)}
+                      onMouseMove={() => setSubmenuSelectedIdx(idx)}
+                    >
+                      {hasAnyIcons ? (
+                        <span
+                          className={`w-4 h-4 flex-shrink-0 flex items-center justify-center text-xs ${
+                            idx === submenuSelectedIdx ? 'text-white' : 'text-white/50'
+                          }`}
+                          style={
+                            isNativeLiquidGlass && action.style === 'destructive'
+                              ? { color: 'var(--status-danger-faded)' }
+                              : undefined
+                          }
+                        >
+                          {hasActionIcon ? renderIcon(action.icon, 'w-4 h-4', assetsPath) : null}
+                        </span>
+                      ) : null}
+                      <span
+                        className={`flex-1 text-[13px] truncate ${
+                          action.style === 'destructive'
+                            ? idx === submenuSelectedIdx
+                              ? 'text-white'
+                              : 'text-red-400'
+                            : idx === submenuSelectedIdx
+                              ? 'text-white'
+                              : 'text-white/80'
+                        }`}
+                        style={
+                          isNativeLiquidGlass && action.style === 'destructive'
+                            ? { color: 'var(--status-danger-faded)' }
+                            : undefined
+                        }
+                      >
+                        {action.title}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="action-overlay-scroll flex-1 overflow-y-auto py-1">
+                {filteredActions.length === 0 ? (
               <div className="px-3 py-4 text-center text-white/30 text-sm">No matching actions</div>
             ) : (
               groups.map((group, groupPosition) => (
                 <div key={groupPosition}>
-                  {groupPosition > 0 && <hr className="border-[var(--ui-divider)] my-0.5" />}
+                  {groupPosition > 0 && <hr className="border-[var(--ui-divider)] my-1" />}
                   {group.title && (
-                    <div className="px-3 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wider text-white/25 font-medium select-none">
+                    <div className="px-3 pt-1.5 pb-1 text-[10px] tracking-wider text-[color:var(--text-subtle)] font-medium select-none">
                       {group.title}
                     </div>
                   )}
@@ -285,7 +425,7 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
                             }
                           : undefined
                       }
-                      onClick={() => onExecute(action)}
+                      onClick={() => executeAction(action)}
                       onMouseMove={() => setSelectedIdx(idx)}
                     >
                       {hasAnyIcons ? (
@@ -334,16 +474,18 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
               ))
             )}
           </div>
-          <div className="border-t border-[var(--ui-divider)] px-3 py-2">
+          <div className="border-t border-[var(--ui-divider)] mx-1 px-2.5 py-2">
             <input
               ref={filterRef}
               type="text"
               placeholder="Search for actions…"
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
-              className="w-full bg-transparent text-sm text-white/70 placeholder-white/25 outline-none"
+              className="w-full bg-transparent text-sm text-white/70 placeholder:text-[color:var(--text-subtle)] placeholder:text-[13px] outline-none"
             />
           </div>
+          </>
+        )}
         </div>
       </div>
     );

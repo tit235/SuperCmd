@@ -43,14 +43,13 @@ import { useWhisperManager } from './hooks/useWhisperManager';
 import { useInlineArgumentAnchor } from './hooks/useInlineArgumentAnchor';
 import { LAST_EXT_KEY, MAX_RECENT_COMMANDS } from './utils/constants';
 import { applyBaseColor } from './utils/base-color';
-import { resetAccessToken } from './raycast-api';
+import { resetAccessToken, InternalActionPanelOverlay } from './raycast-api';
 import {
-  type LauncherAction, type MemoryFeedback,
+  type MemoryFeedback,
   filterCommands, formatShortcutLabel, getCategoryLabel,
   renderCommandIcon, getCommandDisplayTitle,
   getCommandAccessoryLabel,
   getCommandTypeBadgeLabel,
-  renderShortcutLabel,
 } from './utils/command-helpers';
 import {
   readJsonObject, writeJsonObject,
@@ -70,7 +69,9 @@ import ExtensionPreferenceSetupView from './views/ExtensionPreferenceSetupView';
 import AiChatView from './views/AiChatView';
 import CursorPromptView from './views/CursorPromptView';
 import InlineArgumentField, { InlineArgumentLeadingIcon, InlineArgumentOverflowBadge } from './components/InlineArgumentField';
+import ExtensionActionFooter from './components/ExtensionActionFooter';
 import { useI18n } from './i18n';
+import { ExtractedAction, KeyModifier, ActionShortcut } from './raycast-api/action-runtime-types';
 
 const STALE_OVERLAY_RESET_MS = 60_000;
 const MAX_RECENT_SECTION_ITEMS = 5;
@@ -374,8 +375,6 @@ const App: React.FC = () => {
     y: number;
     command: CommandInfo;
   } | null>(null);
-  const [selectedActionIndex, setSelectedActionIndex] = useState(0);
-  const [selectedContextActionIndex, setSelectedContextActionIndex] = useState(0);
   const [quickLinkDynamicPrompt, setQuickLinkDynamicPrompt] = useState<{
     command: CommandInfo;
     quickLinkId: string;
@@ -449,8 +448,6 @@ const App: React.FC = () => {
 
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const actionsOverlayRef = useRef<HTMLDivElement>(null);
-  const contextMenuRef = useRef<HTMLDivElement>(null);
   const quickLinkDynamicInputRef = useRef<HTMLInputElement>(null);
   const windowPresetCommandQueueRef = useRef<Promise<void>>(Promise.resolve());
   const lastWindowHiddenAtRef = useRef<number>(0);
@@ -1136,35 +1133,12 @@ const App: React.FC = () => {
   );
 
   useEffect(() => {
-    if (!contextMenu) return;
-    const onMouseDown = (e: MouseEvent) => {
-      // If the click is inside the context menu panel, don't dismiss —
-      // the action item's onClick needs to fire first (mousedown precedes click).
-      if (contextMenuRef.current?.contains(e.target as Node)) return;
-      setContextMenu(null);
-    };
-    window.addEventListener('mousedown', onMouseDown);
-    return () => window.removeEventListener('mousedown', onMouseDown);
-  }, [contextMenu]);
-
-  useEffect(() => {
     if (!showActions) return;
-    setSelectedActionIndex(0);
-    setTimeout(() => actionsOverlayRef.current?.focus(), 0);
-  }, [showActions]);
-
-  useEffect(() => {
     showActionsRef.current = showActions;
     if (!showActions) {
       setActionsCommand(null);
     }
   }, [showActions]);
-
-  useEffect(() => {
-    if (!contextMenu) return;
-    setSelectedContextActionIndex(0);
-    setTimeout(() => contextMenuRef.current?.focus(), 0);
-  }, [contextMenu]);
 
   useEffect(() => {
     if (!showActions && !contextMenu && !quickLinkDynamicPrompt && !aiMode && !extensionView && !showClipboardManager && !showSnippetManager && !showNotesSearch && !showQuickLinkManager && !showFileSearch && !showCursorPrompt && !showWhisper && !showSpeak && !showCamera && !showSchedule && !showWindowManager && !showOnboarding) {
@@ -1308,7 +1282,6 @@ const App: React.FC = () => {
       if (!command) return;
       setContextMenu(null);
       setActionsCommand(command);
-      setSelectedActionIndex(0);
       setShowActions(true);
     };
 
@@ -1847,7 +1820,6 @@ const App: React.FC = () => {
         if (!selectedCommand) return;
         setContextMenu(null);
         setActionsCommand(selectedCommand);
-        setSelectedActionIndex(0);
         setShowActions(true);
         return;
       }
@@ -2581,7 +2553,7 @@ const App: React.FC = () => {
   );
 
   const getActionsForCommand = useCallback(
-    (command: CommandInfo | null): LauncherAction[] => {
+    (command: CommandInfo | null): ExtractedAction[] => {
       if (!command) return [];
       const filePath = getFileResultPathFromCommand(command);
       if (filePath) {
@@ -2589,25 +2561,25 @@ const App: React.FC = () => {
           {
             id: 'open-file',
             title: t('launcher.actions.openFile'),
-            shortcut: 'Enter',
+            shortcut: { key: 'enter'},
             execute: () => openFileResultByPath(filePath),
           },
           {
             id: 'show-file-details',
             title: t('launcher.actions.showDetails'),
-            shortcut: 'Cmd+D',
+            shortcut: {modifiers: [KeyModifier.Cmd], key: 'd'},
             execute: () => showFileResultDetailsByPath(filePath),
           },
           {
             id: 'reveal-file',
             title: t('launcher.actions.revealInFinder'),
-            shortcut: 'Cmd+Enter',
+            shortcut: {modifiers: [KeyModifier.Cmd], key: 'enter'},
             execute: () => revealFileResultByPath(filePath),
           },
           {
             id: 'copy-file-path',
             title: t('launcher.actions.copyPath'),
-            shortcut: 'Cmd+Shift+C',
+            shortcut: {modifiers: [KeyModifier.Cmd, KeyModifier.Shift], key: 'c'},
             execute: () => copyFileResultPath(filePath),
           },
         ];
@@ -2618,8 +2590,8 @@ const App: React.FC = () => {
       return [
         {
           id: 'open',
-          title: t('launcher.actions.openCommand'),
-          shortcut: 'Enter',
+          title: command.category === 'app' ? t('launcher.actions.openApp') : t('launcher.actions.openCommand'),
+          shortcut: { key: 'enter' },
           execute: () => handleCommandExecute(command),
         },
         {
@@ -2629,38 +2601,38 @@ const App: React.FC = () => {
             : command.category === 'extension'
               ? t('launcher.actions.pinExtension')
               : t('launcher.actions.pinCommand'),
-          shortcut: 'Cmd+Shift+P',
+          shortcut: {modifiers: [KeyModifier.Cmd, KeyModifier.Shift], key: 'p'},
           execute: () => pinToggleForCommand(command),
         },
         {
           id: 'disable',
           title: t('launcher.actions.disableCommand'),
-          shortcut: 'Cmd+Shift+D',
+          shortcut: {modifiers: [KeyModifier.Cmd, KeyModifier.Shift], key: 'd'},
           execute: () => disableCommand(command),
         },
         {
           id: 'uninstall',
           title: 'Uninstall',
-          shortcut: 'Cmd+Delete',
-          style: 'destructive',
-          enabled: command.category === 'extension',
+          shortcut: {modifiers: [KeyModifier.Cmd], key: 'delete'},
+          style: 'destructive' as const,
+          disabled: command.category !== 'extension',
           execute: () => uninstallExtensionCommand(command),
         },
         {
           id: 'move-up',
           title: t('launcher.actions.moveUp'),
-          shortcut: 'Cmd+Alt+Up',
-          enabled: isPinned && pinnedIndex > 0,
+          shortcut: {modifiers: [KeyModifier.Cmd, KeyModifier.Opt], key: 'arrowup'},
+          disabled: !(isPinned && pinnedIndex > 0),
           execute: () => movePinnedCommand(command, 'up'),
         },
         {
           id: 'move-down',
           title: t('launcher.actions.moveDown'),
-          shortcut: 'Cmd+Alt+Down',
-          enabled: isPinned && pinnedIndex >= 0 && pinnedIndex < pinnedCommands.length - 1,
+          shortcut: {modifiers: [KeyModifier.Cmd, KeyModifier.Opt], key: 'arrowdown'},
+          disabled: !(isPinned && pinnedIndex >= 0 && pinnedIndex < pinnedCommands.length - 1),
           execute: () => movePinnedCommand(command, 'down'),
         },
-      ].filter((action) => action.enabled !== false);
+      ].filter((action) => !action.disabled);
     },
     [
       pinnedCommands,
@@ -2694,66 +2666,6 @@ const App: React.FC = () => {
   const contextActions = useMemo(
     () => getActionsForCommand(contextCommand),
     [getActionsForCommand, contextCommand]
-  );
-
-  const handleActionsOverlayKeyDown = useCallback(
-    async (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if (actionsOverlayActions.length === 0) return;
-      switch (e.key) {
-        case 'ArrowDown':
-          e.preventDefault();
-          setSelectedActionIndex((prev) =>
-            Math.min(prev + 1, actionsOverlayActions.length - 1)
-          );
-          break;
-        case 'ArrowUp':
-          e.preventDefault();
-          setSelectedActionIndex((prev) => Math.max(prev - 1, 0));
-          break;
-        case 'Enter':
-          e.preventDefault();
-          await Promise.resolve(actionsOverlayActions[selectedActionIndex]?.execute());
-          setShowActions(false);
-          restoreLauncherFocus();
-          break;
-        case 'Escape':
-          e.preventDefault();
-          setShowActions(false);
-          restoreLauncherFocus();
-          break;
-      }
-    },
-    [actionsOverlayActions, selectedActionIndex, restoreLauncherFocus]
-  );
-
-  const handleContextMenuKeyDown = useCallback(
-    async (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if (contextActions.length === 0) return;
-      switch (e.key) {
-        case 'ArrowDown':
-          e.preventDefault();
-          setSelectedContextActionIndex((prev) =>
-            Math.min(prev + 1, contextActions.length - 1)
-          );
-          break;
-        case 'ArrowUp':
-          e.preventDefault();
-          setSelectedContextActionIndex((prev) => Math.max(prev - 1, 0));
-          break;
-        case 'Enter':
-          e.preventDefault();
-          await Promise.resolve(contextActions[selectedContextActionIndex]?.execute());
-          setContextMenu(null);
-          restoreLauncherFocus();
-          break;
-        case 'Escape':
-          e.preventDefault();
-          setContextMenu(null);
-          restoreLauncherFocus();
-          break;
-      }
-    },
-    [contextActions, selectedContextActionIndex, restoreLauncherFocus]
   );
 
   // ─── Hidden menu-bar extension runners (always mounted) ────────────
@@ -3633,52 +3545,38 @@ const App: React.FC = () => {
         
         {/* Footer actions */}
         {!isLoading && (
-          <div
-            className="sc-glass-footer sc-launcher-footer absolute bottom-0 left-0 right-0 z-10 flex items-center px-4 py-2.5"
-          >
-            <div
-              className="sc-footer-primary flex items-center gap-2 text-xs flex-1 min-w-0 font-normal truncate text-[var(--text-subtle)]"
-            >
-              {selectedCommand
-                ? (
-                  <>
-                    <span className="w-5 h-5 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                      {renderCommandIcon(selectedCommand)}
-                    </span>
-                    <span className="truncate">{getCommandDisplayTitle(selectedCommand, t)}</span>
-                  </>
-                )
-                : t('launcher.status.results', { count: displayCommands.length })}
-            </div>
-            {selectedActions[0] && (
-              <div className="flex items-center gap-2 mr-3">
-                <button
-                  onClick={() => selectedActions[0].execute()}
-                  className="text-[var(--text-primary)] text-xs font-semibold hover:text-[var(--text-primary)] transition-colors"
-                >
-                  {selectedActions[0].title}
-                </button>
-                {selectedActions[0].shortcut && (
-                  <kbd className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded bg-[var(--kbd-bg)] text-[0.6875rem] text-[var(--text-subtle)] font-medium">
-                    {renderShortcutLabel(selectedActions[0].shortcut)}
-                  </kbd>
-                )}
-              </div>
-            )}
-            <button
-              onClick={() => {
-                if (!selectedCommand) return;
-                setContextMenu(null);
-                setActionsCommand(selectedCommand);
-                setSelectedActionIndex(0);
-                setShowActions(true);
+          <div className="sc-launcher-footer absolute bottom-0 left-0 right-0 z-10">
+            <ExtensionActionFooter
+              leftContent={
+                <div className="sc-footer-primary flex items-center gap-2 text-xs flex-1 min-w-0 font-normal truncate text-[var(--text-subtle)]">
+                  {selectedCommand
+                    ? (
+                      <>
+                        <span className="w-5 h-5 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                          {renderCommandIcon(selectedCommand)}
+                        </span>
+                        <span className="truncate">{getCommandDisplayTitle(selectedCommand, t)}</span>
+                      </>
+                    )
+                    : t('launcher.status.results', { count: displayCommands.length })}
+                </div>
+              }
+              primaryAction={selectedActions[0] ? {
+                label: selectedActions[0].title,
+                onClick: () => selectedActions[0].execute(),
+                shortcut: selectedActions[0].shortcut
+              } : undefined}
+              actionsButton={{
+                label: t('common.actions'),
+                onClick: () => {
+                  if (!selectedCommand) return;
+                  setContextMenu(null);
+                  setActionsCommand(selectedCommand);
+                  setShowActions(true);
+                },
+                shortcut: { modifiers: [KeyModifier.Cmd], key: 'k' }
               }}
-              className="flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
-            >
-              <span className="text-xs font-normal">{t('common.actions')}</span>
-              <kbd className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded bg-[var(--kbd-bg)] text-[0.6875rem] text-[var(--text-subtle)] font-medium">⌘</kbd>
-              <kbd className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded bg-[var(--kbd-bg)] text-[0.6875rem] text-[var(--text-subtle)] font-medium">K</kbd>
-            </button>
+            />
           </div>
         )}
     </LauncherSurface>
@@ -3767,175 +3665,27 @@ const App: React.FC = () => {
         </div>
       </div>
     )}
-    {showActions && actionsOverlayActions.length > 0 && (
-      <div
-        className="fixed inset-0 z-50"
-        onClick={() => setShowActions(false)}
-        style={{ background: 'var(--bg-scrim)' }}
-      >
-        <div
-          ref={actionsOverlayRef}
-          className="absolute bottom-12 right-3 w-96 max-h-[65vh] rounded-xl overflow-hidden flex flex-col shadow-2xl outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0"
-          tabIndex={0}
-          onKeyDown={handleActionsOverlayKeyDown}
-          style={{
-            ...(isNativeLiquidGlass
-              ? {
-                  background: 'rgba(var(--surface-base-rgb), 0.72)',
-                  backdropFilter: 'blur(44px) saturate(155%)',
-                  WebkitBackdropFilter: 'blur(44px) saturate(155%)',
-                  border: '1px solid rgba(var(--on-surface-rgb), 0.22)',
-                  boxShadow: '0 18px 38px -12px rgba(var(--backdrop-rgb), 0.26)',
-                }
-              : isGlassyTheme
-              ? {
-                  background:
-                    'linear-gradient(160deg, rgba(var(--on-surface-rgb), 0.08), rgba(var(--on-surface-rgb), 0.01)), rgba(var(--surface-base-rgb), 0.42)',
-                  backdropFilter: 'blur(96px) saturate(190%)',
-                  WebkitBackdropFilter: 'blur(96px) saturate(190%)',
-                  border: '1px solid rgba(var(--on-surface-rgb), 0.05)',
-                }
-              : {
-                  background: 'var(--card-bg)',
-                  backdropFilter: 'blur(40px)',
-                  WebkitBackdropFilter: 'blur(40px)',
-                  border: '1px solid var(--border-primary)',
-                }),
-            outline: 'none',
-          }}
-          onFocus={(e) => {
-            (e.currentTarget as HTMLDivElement).style.outline = 'none';
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="flex-1 overflow-y-auto py-1">
-            {actionsOverlayActions.map((action, idx) => (
-              <div
-                key={action.id}
-                className={`mx-1 px-2.5 py-1.5 rounded-lg border border-transparent flex items-center gap-2.5 cursor-pointer transition-colors ${
-                  idx === selectedActionIndex
-                    ? action.style === 'destructive'
-                      ? 'bg-[var(--action-menu-selected-bg)] text-[var(--status-danger-faded)]'
-                      : 'bg-[var(--action-menu-selected-bg)] text-[var(--text-primary)]'
-                    : action.style === 'destructive'
-                      ? 'hover:bg-[var(--overlay-item-hover-bg)] text-[var(--status-danger-faded)]'
-                      : 'hover:bg-[var(--overlay-item-hover-bg)] text-[var(--text-secondary)]'
-                }`}
-                style={
-                  idx === selectedActionIndex
-                    ? {
-                        background: 'var(--action-menu-selected-bg)',
-                        borderColor: 'var(--action-menu-selected-border)',
-                        boxShadow: 'var(--action-menu-selected-shadow)',
-                      }
-                    : undefined
-                }
-                onClick={async () => {
-                  await Promise.resolve(action.execute());
-                  setShowActions(false);
-                  restoreLauncherFocus();
-                }}
-                onMouseMove={() => setSelectedActionIndex(idx)}
-              >
-                <span className="flex-1 text-sm truncate">{action.title}</span>
-                {action.shortcut && (
-                  <kbd className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded bg-[var(--kbd-bg)] text-[0.6875rem] font-medium text-[var(--text-muted)]">
-                    {renderShortcutLabel(action.shortcut)}
-                  </kbd>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    )}
-    {contextMenu && contextActions.length > 0 && (
-      <div
-        className="fixed inset-0 z-50"
-        onClick={() => setContextMenu(null)}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          setContextMenu(null);
+    {showActions && (
+      <InternalActionPanelOverlay
+        actions={actionsOverlayActions}
+        onClose={() => setShowActions(false)}
+        onExecute={async (action) => {
+          await Promise.resolve(action.execute());
+          setShowActions(false);
+          restoreLauncherFocus();
         }}
-      >
-        <div
-          ref={contextMenuRef}
-          className="absolute w-80 max-h-[60vh] rounded-xl overflow-hidden flex flex-col shadow-2xl outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0"
-          tabIndex={0}
-          onKeyDown={handleContextMenuKeyDown}
-          style={{
-            left: Math.min(contextMenu.x, window.innerWidth - 340),
-            top: Math.min(contextMenu.y, window.innerHeight - 320),
-            ...(isNativeLiquidGlass
-              ? {
-                  background: 'rgba(var(--surface-base-rgb), 0.72)',
-                  backdropFilter: 'blur(44px) saturate(155%)',
-                  WebkitBackdropFilter: 'blur(44px) saturate(155%)',
-                  border: '1px solid rgba(var(--on-surface-rgb), 0.22)',
-                  boxShadow: '0 18px 38px -12px rgba(var(--backdrop-rgb), 0.26)',
-                }
-              : isGlassyTheme
-              ? {
-                  background:
-                    'linear-gradient(160deg, rgba(var(--on-surface-rgb), 0.08), rgba(var(--on-surface-rgb), 0.01)), rgba(var(--surface-base-rgb), 0.42)',
-                  backdropFilter: 'blur(96px) saturate(190%)',
-                  WebkitBackdropFilter: 'blur(96px) saturate(190%)',
-                  border: '1px solid rgba(var(--on-surface-rgb), 0.05)',
-                }
-              : {
-                  background: 'var(--card-bg)',
-                  backdropFilter: 'blur(40px)',
-                  WebkitBackdropFilter: 'blur(40px)',
-                  border: '1px solid var(--border-primary)',
-                }),
-            outline: 'none',
-          }}
-          onFocus={(e) => {
-            (e.currentTarget as HTMLDivElement).style.outline = 'none';
-          }}
-          onClick={(e) => e.stopPropagation()}
-          onContextMenu={(e) => e.preventDefault()}
-        >
-          <div className="flex-1 overflow-y-auto py-1">
-            {contextActions.map((action, idx) => (
-              <div
-                key={`ctx-${action.id}`}
-                className={`mx-1 px-2.5 py-1.5 rounded-lg border border-transparent flex items-center gap-2.5 cursor-pointer transition-colors ${
-                  idx === selectedContextActionIndex
-                    ? action.style === 'destructive'
-                      ? 'bg-[var(--action-menu-selected-bg)] text-[var(--status-danger-faded)]'
-                      : 'bg-[var(--action-menu-selected-bg)] text-[var(--text-primary)]'
-                    : action.style === 'destructive'
-                      ? 'hover:bg-[var(--overlay-item-hover-bg)] text-[var(--status-danger-faded)]'
-                      : 'hover:bg-[var(--overlay-item-hover-bg)] text-[var(--text-secondary)]'
-                }`}
-                style={
-                  idx === selectedContextActionIndex
-                    ? {
-                        background: 'var(--action-menu-selected-bg)',
-                        borderColor: 'var(--action-menu-selected-border)',
-                        boxShadow: 'var(--action-menu-selected-shadow)',
-                      }
-                    : undefined
-                }
-                onClick={async () => {
-                  await Promise.resolve(action.execute());
-                  setContextMenu(null);
-                  restoreLauncherFocus();
-                }}
-                onMouseMove={() => setSelectedContextActionIndex(idx)}
-              >
-                <span className="flex-1 text-sm truncate">{action.title}</span>
-                {action.shortcut && (
-                  <kbd className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded bg-[var(--kbd-bg)] text-[0.6875rem] font-medium text-[var(--text-muted)]">
-                    {renderShortcutLabel(action.shortcut)}
-                  </kbd>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      />
+    )}
+    {contextMenu && (
+      <InternalActionPanelOverlay
+        actions={contextActions}
+        onClose={() => setContextMenu(null)}
+        onExecute={async (action) => {
+          await Promise.resolve(action.execute());
+          setContextMenu(null);
+          restoreLauncherFocus();
+        }}
+      />
     )}
     </>
   );

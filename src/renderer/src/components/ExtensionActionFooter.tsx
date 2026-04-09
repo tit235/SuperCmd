@@ -1,10 +1,12 @@
 import React from 'react';
+import { ActionShortcut, KeyModifier } from '../raycast-api/action-runtime-types';
+import { renderShortcut } from '../raycast-api';
 
 interface FooterAction {
   label: string;
   onClick: () => void | Promise<void>;
   disabled?: boolean;
-  shortcut?: string[];
+  shortcut?: ActionShortcut;
 }
 
 interface ExtensionActionFooterProps {
@@ -12,9 +14,6 @@ interface ExtensionActionFooterProps {
   primaryAction?: FooterAction;
   actionsButton: FooterAction;
 }
-
-const KEY_CLASS =
-  'inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded bg-[var(--kbd-bg)] text-[11px] text-[var(--text-muted)] font-medium';
 
 const ExtensionActionFooter: React.FC<ExtensionActionFooterProps> = ({
   leftContent,
@@ -42,11 +41,7 @@ const ExtensionActionFooter: React.FC<ExtensionActionFooterProps> = ({
             className="flex items-center gap-1.5 text-[var(--text-primary)] hover:text-[var(--text-secondary)] disabled:text-[var(--text-disabled)] transition-colors"
           >
             <span className="text-xs font-normal truncate max-w-[220px]">{primaryAction.label}</span>
-            {(primaryAction.shortcut || ['↩']).map((key) => (
-              <kbd key={`primary-${key}`} className={KEY_CLASS}>
-                {key}
-              </kbd>
-            ))}
+            {renderShortcut(primaryAction.shortcut || { key: 'enter' })}
           </button>
         ) : null}
 
@@ -58,11 +53,7 @@ const ExtensionActionFooter: React.FC<ExtensionActionFooterProps> = ({
           className="flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] disabled:text-[var(--text-disabled)] transition-colors"
         >
           <span className="text-xs font-normal">{actionsButton.label}</span>
-          {(actionsButton.shortcut || ['⌘', 'K']).map((key) => (
-            <kbd key={`actions-${key}`} className={KEY_CLASS}>
-              {key}
-            </kbd>
-          ))}
+          {renderShortcut(actionsButton.shortcut || { modifiers: [KeyModifier.Cmd], key: 'k' })}
         </button>
       </div>
     </div>

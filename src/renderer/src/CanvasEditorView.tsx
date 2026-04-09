@@ -19,6 +19,9 @@ const canvasIconStyle = {
   '--nc-gradient-2-color-2': '#fcd34d90',
 } as React.CSSProperties;
 import ExtensionActionFooter from './components/ExtensionActionFooter';
+import type { ActionShortcut, ExtractedAction } from './raycast-api/action-runtime-types';
+import { KeyModifier } from './raycast-api/action-runtime-types';
+import { InternalActionPanelOverlay } from './raycast-api';
 
 // Excalidraw's UMD bundle expects React/ReactDOM as window globals
 (window as any).React = React;
@@ -81,11 +84,7 @@ const CanvasEditorView: React.FC<CanvasEditorViewProps> = ({ mode, canvasId }) =
   const [ExcalidrawComponent, setExcalidrawComponent] = useState<any>(null);
   const [showActions, setShowActions] = useState(false);
   const [excalidrawKey, setExcalidrawKey] = useState(0);
-  const [selectedActionIndex, setSelectedActionIndex] = useState(0);
   const [theme, setTheme] = useState<'dark' | 'light'>('light');
-
-  const isGlassyTheme = document.documentElement.classList.contains('sc-glassy') || document.body.classList.contains('sc-glassy');
-  const isNativeLiquidGlass = document.documentElement.classList.contains('sc-native-liquid-glass') || document.body.classList.contains('sc-native-liquid-glass');
 
   const initialSceneRef = useRef<any>(null);
   const savedLibraryRef = useRef<any[]>([]);
@@ -373,53 +372,20 @@ const CanvasEditorView: React.FC<CanvasEditorViewProps> = ({ mode, canvasId }) =
     }
   }, [theme]);
 
-  const actions = useMemo(() => [
-    { title: 'Export Image', icon: <Image className="w-4 h-4" />, shortcut: ['⇧', '⌘', 'E'], execute: handleExportImage },
-    { title: 'Copy as Image', icon: <Copy className="w-4 h-4" />, shortcut: ['⇧', '⌘', 'C'], execute: handleCopyAsImage },
-    { title: 'Save to Disk', icon: <Download className="w-4 h-4" />, shortcut: [] as string[], execute: handleExportJSON },
-    { title: 'New Canvas', icon: <FilePlus className="w-4 h-4" />, shortcut: ['⌘', 'N'], execute: handleNewCanvas },
-    { title: theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode', icon: theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />, shortcut: [] as string[], execute: handleToggleTheme },
-    { title: 'Reset Canvas', icon: <RotateCcw className="w-4 h-4" />, shortcut: [] as string[], execute: handleReset },
+  const actions: ExtractedAction[] = useMemo(() => [
+    { title: 'Export Image', icon: <Image className="w-4 h-4" />, shortcut: { modifiers: [KeyModifier.Shift, KeyModifier.Cmd], key: 'e' }, execute: handleExportImage },
+    { title: 'Copy as Image', icon: <Copy className="w-4 h-4" />, shortcut: { modifiers: [KeyModifier.Shift, KeyModifier.Cmd], key: 'c' }, execute: handleCopyAsImage },
+    { title: 'Save to Disk', icon: <Download className="w-4 h-4" />, shortcut: {} as ActionShortcut, execute: handleExportJSON },
+    { title: 'New Canvas', icon: <FilePlus className="w-4 h-4" />, shortcut: { modifiers: [KeyModifier.Cmd], key: 'n' }, execute: handleNewCanvas },
+    { title: theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode', icon: theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />, shortcut: {} as ActionShortcut, execute: handleToggleTheme },
+    { title: 'Reset Canvas', icon: <RotateCcw className="w-4 h-4" />, shortcut: {} as ActionShortcut, execute: handleReset },
   ], [theme, handleExportImage, handleCopyAsImage, handleExportJSON, handleNewCanvas, handleToggleTheme, handleReset]);
 
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // When actions menu is open: navigate and execute
-      if (showActions) {
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          e.stopPropagation();
-          setSelectedActionIndex((i) => Math.min(i + 1, actions.length - 1));
-          return;
-        }
-        if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          e.stopPropagation();
-          setSelectedActionIndex((i) => Math.max(0, i - 1));
-          return;
-        }
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          e.stopPropagation();
-          actions[selectedActionIndex]?.execute();
-          setShowActions(false);
-          return;
-        }
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          e.stopPropagation();
-          setShowActions(false);
-          return;
-        }
-        if (e.key === 'k' && e.metaKey) {
-          e.preventDefault();
-          e.stopPropagation();
-          setShowActions(false);
-          return;
-        }
-        return;
-      }
+      // When actions menu is open, let it handle its own shortcuts if needed
+      if (showActions) return;
 
       if (e.key === 's' && e.metaKey) {
         e.preventDefault();
@@ -444,7 +410,6 @@ const CanvasEditorView: React.FC<CanvasEditorViewProps> = ({ mode, canvasId }) =
       if (e.key === 'k' && e.metaKey) {
         e.preventDefault();
         setShowActions((v) => !v);
-        setSelectedActionIndex(0);
         return;
       }
       if (e.key === 'Escape') {
@@ -467,7 +432,7 @@ const CanvasEditorView: React.FC<CanvasEditorViewProps> = ({ mode, canvasId }) =
     // Use capture phase so we intercept before Excalidraw's own handlers
     window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
-  }, [showActions, selectedActionIndex, actions, handleSaveNow, handleExportImage, handleCopyAsImage, handleNewCanvas, currentCanvasId, saveThumbnailAsync]);
+  }, [showActions, actions, handleSaveNow, handleExportImage, handleCopyAsImage, handleNewCanvas, currentCanvasId, saveThumbnailAsync]);
 
   // Load library items sent from main process (via "Add to Excalidraw" in library browser)
   useEffect(() => {
@@ -668,80 +633,13 @@ const CanvasEditorView: React.FC<CanvasEditorViewProps> = ({ mode, canvasId }) =
         ) : null}
       </div>
 
-      {/* Actions overlay — matches Snippets pattern */}
+      {/* Actions overlay */}
       {showActions && (
-        <div
-          className="fixed inset-0 z-50"
-          onClick={() => setShowActions(false)}
-          style={{ background: 'var(--bg-scrim)' }}
-        >
-          <div
-            className="absolute bottom-12 right-3 w-80 max-h-[65vh] rounded-xl overflow-hidden flex flex-col shadow-2xl"
-            style={
-              isNativeLiquidGlass
-                ? {
-                    background: 'rgba(var(--surface-base-rgb), 0.72)',
-                    backdropFilter: 'blur(44px) saturate(155%)',
-                    WebkitBackdropFilter: 'blur(44px) saturate(155%)',
-                    border: '1px solid rgba(var(--on-surface-rgb), 0.22)',
-                    boxShadow: '0 18px 38px -12px rgba(var(--backdrop-rgb), 0.26)',
-                  }
-                : isGlassyTheme
-                ? {
-                    background: 'linear-gradient(160deg, rgba(var(--on-surface-rgb), 0.08), rgba(var(--on-surface-rgb), 0.01)), rgba(var(--surface-base-rgb), 0.42)',
-                    backdropFilter: 'blur(96px) saturate(190%)',
-                    WebkitBackdropFilter: 'blur(96px) saturate(190%)',
-                    border: '1px solid rgba(var(--on-surface-rgb), 0.05)',
-                  }
-                : {
-                    background: 'var(--card-bg)',
-                    backdropFilter: 'blur(40px)',
-                    WebkitBackdropFilter: 'blur(40px)',
-                    border: '1px solid var(--border-primary)',
-                  }
-            }
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex-1 overflow-y-auto py-1">
-              {actions.map((action, idx) => (
-                <div
-                  key={idx}
-                  className={`mx-1 px-2.5 py-1.5 rounded-lg border border-transparent flex items-center gap-2.5 cursor-pointer transition-colors hover:bg-[var(--overlay-item-hover-bg)] text-[var(--text-secondary)] ${
-                    idx === selectedActionIndex ? 'bg-[var(--action-menu-selected-bg)]' : ''
-                  }`}
-                  style={
-                    idx === selectedActionIndex
-                      ? {
-                          background: 'var(--action-menu-selected-bg)',
-                          borderColor: 'var(--action-menu-selected-border)',
-                          boxShadow: 'var(--action-menu-selected-shadow)',
-                        }
-                      : undefined
-                  }
-                  onMouseMove={() => setSelectedActionIndex(idx)}
-                  onClick={() => { action.execute(); setShowActions(false); }}
-                >
-                  {action.icon && (
-                    <span className="text-[var(--text-muted)]">{action.icon}</span>
-                  )}
-                  <span className="flex-1 text-sm truncate">{action.title}</span>
-                  {action.shortcut.length > 0 && (
-                    <span className="flex items-center gap-0.5">
-                      {action.shortcut.map((k, keyIdx) => (
-                        <kbd
-                          key={`${idx}-${keyIdx}`}
-                          className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded bg-[var(--kbd-bg)] text-[11px] font-medium text-[var(--text-muted)]"
-                        >
-                          {k}
-                        </kbd>
-                      ))}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <InternalActionPanelOverlay
+          actions={actions}
+          onClose={() => setShowActions(false)}
+          onExecute={(action) => action.execute()}
+        />
       )}
 
       {/* Footer — uses ExtensionActionFooter for consistent styling */}
@@ -750,12 +648,12 @@ const CanvasEditorView: React.FC<CanvasEditorViewProps> = ({ mode, canvasId }) =
         primaryAction={{
           label: 'Save',
           onClick: handleSaveNow,
-          shortcut: ['⌘', 'S'],
+          shortcut: { modifiers: [KeyModifier.Cmd], key: 's' },
         }}
         actionsButton={{
           label: 'Actions',
           onClick: () => setShowActions((v) => !v),
-          shortcut: ['⌘', 'K'],
+          shortcut: { modifiers: [KeyModifier.Cmd], key: 'k' },
         }}
       />
     </div>

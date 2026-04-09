@@ -38,6 +38,7 @@ export function createActionComponentRuntime(deps: ComponentDeps) {
     if (!registry) return null;
     return <ActionSectionContext.Provider value={title}>{children}</ActionSectionContext.Provider>;
   }
+  (ActionPanelSubmenu as any).__isSubmenu = true;
 
   function ActionComponent(props: any) {
     useActionRegistration(props, 'action');

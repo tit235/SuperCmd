@@ -6,7 +6,7 @@
  */
 
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import type { ExtractedAction } from './action-runtime';
+import type { ExtractedAction, ActionShortcut } from './action-runtime-types';
 import { useI18n } from '../i18n';
 import { createListDetailRuntime } from './list-runtime-detail';
 import { groupListItems, shouldUseEmojiGrid, useListRegistry } from './list-runtime-hooks';
@@ -27,7 +27,7 @@ interface ListRuntimeDeps {
     onClose: () => void;
     onExecute: (action: ExtractedAction) => void;
   }>;
-  matchesShortcut: (event: React.KeyboardEvent | KeyboardEvent, shortcut?: { modifiers?: string[]; key?: string }) => boolean;
+  matchesShortcut: (event: React.KeyboardEvent | KeyboardEvent, shortcut?: ActionShortcut) => boolean;
   isMetaK: (event: React.KeyboardEvent | KeyboardEvent) => boolean;
   isEmojiOrSymbol: (value: string) => boolean;
   renderIcon: (icon: any, className?: string, assetsPath?: string) => React.ReactNode;

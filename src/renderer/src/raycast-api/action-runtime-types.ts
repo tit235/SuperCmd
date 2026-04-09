@@ -5,8 +5,16 @@
  * and ActionPanel extraction helpers.
  */
 
+export enum KeyModifier {
+  Cmd = 'cmd',
+  Ctrl = 'ctrl',
+  Opt = 'opt',
+  Shift = 'shift',
+  Hyper = 'hyper',
+}
+
 export interface ActionShortcut {
-  modifiers?: string[];
+  modifiers?: KeyModifier[];
   key?: string;
 }
 
@@ -16,7 +24,7 @@ export interface ActionRegistration {
   icon?: any;
   shortcut?: ActionShortcut;
   style?: string;
-  sectionTitle?: string;
+  section?: { id: string; title?: string };
   execute: () => void;
   order: number;
 }
@@ -27,10 +35,13 @@ export interface ActionRegistryAPI {
 }
 
 export interface ExtractedAction {
+  id?: string;
   title: string;
   icon?: any;
   shortcut?: ActionShortcut;
   style?: string;
-  sectionTitle?: string;
+  section?: {id: string; title?: string};
+  submenu?: ExtractedAction[];
+  disabled?: boolean;
   execute: () => void;
 }

@@ -6,7 +6,7 @@
  */
 
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import type { ExtractedAction } from './action-runtime';
+import type { ExtractedAction, ActionShortcut } from './action-runtime-types';
 import { createGridItemsRuntime } from './grid-runtime-items';
 import { groupGridItems, useGridRegistry } from './grid-runtime-hooks';
 
@@ -20,7 +20,7 @@ interface GridRuntimeDeps {
     onClose: () => void;
     onExecute: (action: ExtractedAction) => void;
   }>;
-  matchesShortcut: (event: React.KeyboardEvent | KeyboardEvent, shortcut?: { modifiers?: string[]; key?: string }) => boolean;
+  matchesShortcut: (event: React.KeyboardEvent | KeyboardEvent, shortcut?: ActionShortcut) => boolean;
   isMetaK: (event: React.KeyboardEvent | KeyboardEvent) => boolean;
   getExtensionContext: () => { extensionDisplayName?: string; extensionName: string; extensionIconDataUrl?: string };
   EmptyViewRegistryContext: React.Context<any>;

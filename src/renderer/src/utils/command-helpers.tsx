@@ -27,15 +27,6 @@ import IconPen from '../icons/Pen';
 import { formatShortcutForDisplay } from './hyper-key';
 import { renderQuickLinkIconGlyph } from './quicklink-icons';
 
-export interface LauncherAction {
-  id: string;
-  title: string;
-  shortcut?: string;
-  style?: 'default' | 'destructive';
-  enabled?: boolean;
-  execute: () => void | Promise<void>;
-}
-
 export type MemoryFeedback = {
   type: 'success' | 'error';
   text: string;
@@ -1121,11 +1112,6 @@ export function getSystemCommandFallbackIcon(commandId: string): React.ReactNode
       <Power className="w-3 h-3 text-red-400" />
     </div>
   );
-}
-
-export function renderShortcutLabel(shortcut?: string): string {
-  if (!shortcut) return '';
-  return formatShortcutForDisplay(shortcut).replace(/ \+ /g, ' ');
 }
 
 export function parseIntervalToMs(interval?: string): number | null {

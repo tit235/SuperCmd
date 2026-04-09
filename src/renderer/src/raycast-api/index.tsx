@@ -1998,13 +1998,13 @@ const {
   ActionPanelOverlay,
   matchesShortcut,
   isMetaK,
-  renderShortcut,
-  renderShortcutKeycap,
 } = actionRuntime;
 
 export const Action = actionRuntime.Action;
 export const ActionPanel = actionRuntime.ActionPanel;
 export const InternalActionPanelOverlay = ActionPanelOverlay;
+export const renderShortcut = actionRuntime.renderShortcut;
+export const renderShortcutKeycap = actionRuntime.renderShortcutKeycap;
 
 // =====================================================================
 // ─── List ───────────────────────────────────────────────────────────
