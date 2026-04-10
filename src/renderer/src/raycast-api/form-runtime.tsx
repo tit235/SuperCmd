@@ -13,6 +13,9 @@ import {
   setCurrentFormValues,
 } from './form-runtime-context';
 import type { ExtractedAction, ActionShortcut } from './action-runtime-types';
+import { KeyModifier } from './action-runtime-types';
+import { useContainerShortcuts } from './hooks/use-container-shortcuts';
+import type { ShortcutCommand } from './hooks/use-shortcuts';
 
 interface FormRuntimeDeps {
   ExtensionInfoReactContext: React.Context<any>;
@@ -84,6 +87,27 @@ export function createFormRuntime(deps: FormRuntimeDeps) {
     const { collectedActions: formActions, registryAPI: formActionRegistry } = useCollectedActions();
     const primaryAction = formActions[0];
 
+    const formSubmitCommands = useMemo<ShortcutCommand[]>(
+      () => [
+        {
+          // Cmd+Enter submits the primary action (common form submit pattern).
+          id: 'form-submit',
+          shortcut: { key: 'Enter', modifiers: [KeyModifier.Cmd] },
+          handler: () => primaryAction?.execute(),
+          enabled: !!primaryAction,
+        },
+      ],
+      [primaryAction],
+    );
+
+    useContainerShortcuts({
+      actions: formActions,
+      toggleActionPanel: () => setShowActions((v) => !v),
+      pop,
+      extraCommands: formSubmitCommands,
+      overlayOpen: showActions,
+    });
+
     const extensionContext = getExtensionContext();
     const footerTitle =
       navigationTitle ||
@@ -92,36 +116,6 @@ export function createFormRuntime(deps: FormRuntimeDeps) {
       extensionContext.extensionName ||
       'Extension';
     const footerIcon = extInfo.extensionIconDataUrl || extensionContext.extensionIconDataUrl;
-
-    useEffect(() => {
-      const handler = (event: KeyboardEvent) => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          pop();
-          return;
-        }
-        if (isMetaK(event)) {
-          event.preventDefault();
-          setShowActions((value) => !value);
-          return;
-        }
-        if (event.key === 'Enter' && event.metaKey && !event.repeat && primaryAction) {
-          event.preventDefault();
-          primaryAction.execute();
-          return;
-        }
-        if (event.repeat) return;
-        for (const action of formActions) {
-          if (!action.shortcut || !matchesShortcut(event, action.shortcut)) continue;
-          event.preventDefault();
-          action.execute();
-          return;
-        }
-      };
-
-      window.addEventListener('keydown', handler);
-      return () => window.removeEventListener('keydown', handler);
-    }, [formActions, isMetaK, matchesShortcut, pop, primaryAction]);
 
     const contextValue = useMemo(() => ({ values, setValue, errors, setError }), [errors, setError, setValue, values]);
     const handleActionExecute = useCallback((action: ExtractedAction) => {

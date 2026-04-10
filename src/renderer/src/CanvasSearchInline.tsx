@@ -14,6 +14,8 @@ import IconCodeEditor from './icons/Snippet';
 import type { ExtractedAction, ActionShortcut } from './raycast-api/action-runtime-types';
 import { KeyModifier } from './raycast-api/action-runtime-types';
 import { InternalActionPanelOverlay } from './raycast-api';
+import { useContainerShortcuts } from './raycast-api/hooks/use-container-shortcuts';
+import type { ShortcutCommand } from './raycast-api/hooks/use-shortcuts';
 
 const canvasIconStyle = {
   '--nc-gradient-1-color-1': '#fcd34d',
@@ -217,72 +219,39 @@ const CanvasSearchInline: React.FC<CanvasSearchInlineProps> = ({ onClose }) => {
   }, [selectedCanvas, openCanvas, loadCanvases]);
 
   // Keyboard handling
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (showActions) return; // Let actions overlay handle keys
-
-      if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
-
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        e.stopPropagation();
-        setSelectedIndex((i) => Math.min(i + 1, filteredCanvases.length - 1));
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        e.stopPropagation();
-        setSelectedIndex((i) => Math.max(0, i - 1));
-        return;
-      }
-
-      if (e.key === 'Enter' && selectedCanvas && !confirmDelete && !renameCanvas) {
-        e.preventDefault();
-        openCanvas(selectedCanvas);
-        return;
-      }
-
-      if (e.key === 'k' && e.metaKey) {
-        e.preventDefault();
-        setShowActions((v) => !v);
-        return;
-      }
-
-      if (e.key === 'n' && e.metaKey) {
-        e.preventDefault();
-        window.electron.openCanvasWindow('create');
-        return;
-      }
-
-      if (e.key === 'r' && e.metaKey && selectedCanvas) {
-        e.preventDefault();
-        setRenameValue(selectedCanvas.title);
-        setRenameCanvas(selectedCanvas);
-        return;
-      }
-
-      if (e.key === 'd' && e.metaKey && selectedCanvas) {
-        e.preventDefault();
-        window.electron.canvasDuplicate(selectedCanvas.id).then(() => loadCanvases());
-        return;
-      }
-
-      if (e.key === 'p' && e.metaKey && e.shiftKey && selectedCanvas) {
-        e.preventDefault();
-        window.electron.canvasTogglePin(selectedCanvas.id).then(() => loadCanvases());
-        return;
-      }
-
-      if (e.key === 'x' && e.ctrlKey && selectedCanvas) {
-        e.preventDefault();
-        setConfirmDelete(true);
-        return;
-      }
-    };
-
-    window.addEventListener('keydown', handler, true);
-    return () => window.removeEventListener('keydown', handler, true);
-  }, [showActions, actions, selectedCanvas, filteredCanvases.length, onClose, openCanvas, loadCanvases, confirmDelete, renameCanvas]);
+  useContainerShortcuts({
+    actions,
+    toggleActionPanel: () => setShowActions((v) => !v),
+    pop: onClose,
+    beforeActionExecute: () => setShowActions(false),
+    overlayOpen: showActions,
+    extraCommands: [
+      {
+        id: 'canvas-nav-down',
+        plainKey: 'ArrowDown',
+        handler: () => setSelectedIndex((i) => Math.min(i + 1, filteredCanvases.length - 1)),
+      },
+      {
+        id: 'canvas-nav-up',
+        plainKey: 'ArrowUp',
+        handler: () => setSelectedIndex((i) => Math.max(0, i - 1)),
+      },
+      {
+        id: 'canvas-open',
+        plainKey: 'Enter',
+        handler: () => { if (selectedCanvas) openCanvas(selectedCanvas); },
+        when: () => !!selectedCanvas && !confirmDelete && !renameCanvas,
+      },
+      {
+        id: 'canvas-delete-confirm',
+        plainKey: 'x',
+        modifierMatch: { ctrl: true },
+        handler: () => setConfirmDelete(true),
+        priority: 1, // intercepts before action shortcut (priority 0) to show confirm dialog
+        when: () => !!selectedCanvas && !confirmDelete,
+      },
+    ] as ShortcutCommand[],
+  });
 
   // Scroll selected item into view
   useEffect(() => {

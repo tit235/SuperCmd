@@ -10,6 +10,7 @@ import {
   Image as ImageIcon,
 } from 'lucide-react';
 import { InternalActionPanelOverlay } from '../raycast-api';
+import { useContainerShortcuts } from '../raycast-api/hooks/use-container-shortcuts';
 import type { ExtractedAction } from '../raycast-api/action-runtime-types';
 import { useI18n } from '../i18n';
 
@@ -503,63 +504,31 @@ const StoreTab: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
     selectedInstalled,
   ]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const isMetaK = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k';
-      const isMetaEnter = (event.metaKey || event.ctrlKey) && (event.key === 'Enter' || event.code === 'NumpadEnter');
-
-      if (isMetaK) {
-        event.preventDefault();
-        setShowActions((prev) => !prev);
-        return;
-      }
-
-      if (isMetaEnter) {
-        if (showActions) return;
-        event.preventDefault();
-        void handlePrimaryAction();
-        return;
-      }
-
-      // Match action shortcuts (Cmd+R, Cmd+O, Cmd+Shift+O, Cmd+Backspace, etc.)
-      if (event.metaKey || event.ctrlKey) {
-        const key = event.key.toLowerCase() === 'backspace' ? 'backspace' : event.key.toLowerCase();
-        for (const action of storeActions) {
-          if (!action.shortcut) continue;
-          const mods = action.shortcut.modifiers || [];
-          const needsMeta = mods.includes('cmd') || mods.includes('ctrl');
-          const needsShift = mods.includes('shift');
-          const hasMeta = event.metaKey || event.ctrlKey;
-          const hasShift = event.shiftKey;
-          if (needsMeta === hasMeta && needsShift === hasShift && action.shortcut.key.toLowerCase() === key) {
-            event.preventDefault();
-            setShowActions(false);
-            action.execute();
-            return;
-          }
-        }
-      }
-
-      if (showActions) {
-        return;
-      }
-
-      if (!event.metaKey && !event.ctrlKey && !event.altKey) {
-        if (event.key === 'ArrowDown') {
-          event.preventDefault();
-          moveSelection(1);
-          return;
-        }
-        if (event.key === 'ArrowUp') {
-          event.preventDefault();
-          moveSelection(-1);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handlePrimaryAction, moveSelection, showActions, storeActions]);
+  useContainerShortcuts({
+    actions: storeActions,
+    toggleActionPanel: () => setShowActions((prev) => !prev),
+    pop: () => {}, // StoreTab has no navigation pop
+    beforeActionExecute: () => setShowActions(false),
+    overlayOpen: showActions,
+    extraCommands: [
+      {
+        id: 'store-nav-down',
+        plainKey: 'ArrowDown',
+        handler: () => moveSelection(1),
+      },
+      {
+        id: 'store-nav-up',
+        plainKey: 'ArrowUp',
+        handler: () => moveSelection(-1),
+      },
+      {
+        id: 'store-primary',
+        plainKey: 'Enter',
+        modifierMatch: { meta: true },
+        handler: () => void handlePrimaryAction(),
+      },
+    ],
+  });
 
   useEffect(() => {
     if (!selectedName) return;

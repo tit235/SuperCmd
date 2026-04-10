@@ -9,3 +9,7 @@ export { useStreamJSON } from './use-stream-json';
 export { useAI } from './use-ai';
 export { useFrecencySorting } from './use-frecency-sorting';
 export { useLocalStorage } from './use-local-storage';
+export { useShortcuts, buildCommandsFromActions } from './use-shortcuts';
+export type { ShortcutCommand, UseShortcutsOptions } from './use-shortcuts';
+export { useContainerShortcuts } from './use-container-shortcuts';
+export type { UseContainerShortcutsOptions } from './use-container-shortcuts';

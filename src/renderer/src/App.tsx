@@ -44,6 +44,7 @@ import { useInlineArgumentAnchor } from './hooks/useInlineArgumentAnchor';
 import { LAST_EXT_KEY, MAX_RECENT_COMMANDS } from './utils/constants';
 import { applyBaseColor } from './utils/base-color';
 import { resetAccessToken, InternalActionPanelOverlay } from './raycast-api';
+import { useShortcuts } from './raycast-api/hooks/use-shortcuts';
 import {
   type MemoryFeedback,
   filterCommands, formatShortcutLabel, getCategoryLabel,
@@ -1258,36 +1259,37 @@ const App: React.FC = () => {
     };
   }, [searchQuery, shouldKeepLauncherSearchResults, homeDir]);
 
-  useEffect(() => {
-    if (!isLauncherModeActive) return;
-    const onWindowKeyDown = (e: KeyboardEvent) => {
-      if (e.defaultPrevented) return;
-      if (!e.metaKey || String(e.key || '').toLowerCase() !== 'k' || e.repeat) return;
-
-      const target = e.target as HTMLElement | null;
-      const active = document.activeElement as HTMLElement | null;
-      const searchInput = inputRef.current;
-      if (searchInput && (target === searchInput || active === searchInput)) return;
-
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-      if (showActionsRef.current) {
-        setShowActions(false);
-        return;
-      }
-
-      const command = selectedCommandRef.current;
-      if (!command) return;
-      setContextMenu(null);
-      setActionsCommand(command);
-      setShowActions(true);
-    };
-
-    window.addEventListener('keydown', onWindowKeyDown, true);
-    return () => window.removeEventListener('keydown', onWindowKeyDown, true);
-  }, [isLauncherModeActive]);
+  // Meta+K from non-input elements: toggle actions overlay (captured at window level)
+  useShortcuts(
+    [
+      {
+        id: 'app-meta-k',
+        plainKey: 'k',
+        modifierMatch: { meta: true },
+        handler: () => {
+          if (showActionsRef.current) {
+            setShowActions(false);
+            return;
+          }
+          const command = selectedCommandRef.current;
+          if (!command) return;
+          setContextMenu(null);
+          setActionsCommand(command);
+          setShowActions(true);
+        },
+        when: () => {
+          if (!isLauncherModeActive) return false;
+          const active = document.activeElement as HTMLElement | null;
+          const searchInput = inputRef.current;
+          if (searchInput && active === searchInput) return false;
+          if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return false;
+          return true;
+        },
+        priority: -10,
+      },
+    ],
+    { capture: true },
+  );
 
   useEffect(() => {
     return () => {

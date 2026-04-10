@@ -4,6 +4,7 @@ import ExtensionActionFooter from './components/ExtensionActionFooter';
 import type { ExtractedAction, ActionShortcut } from './raycast-api/action-runtime-types';
 import { KeyModifier } from './raycast-api/action-runtime-types';
 import { InternalActionPanelOverlay } from './raycast-api';
+import { useContainerShortcuts } from './raycast-api/hooks/use-container-shortcuts';
 
 interface CameraExtensionProps {
   onClose: () => void;
@@ -469,70 +470,23 @@ const CameraExtension: React.FC<CameraExtensionProps> = ({ onClose }) => {
     [refocusCameraRoot]
   );
 
-  const handleKeyDown = useCallback(
-    (event: KeyboardEvent | React.KeyboardEvent<HTMLDivElement>) => {
-      if (event.defaultPrevented) return;
-      const key = String(event.key || '').toLowerCase();
-      const isPlainEnter =
-        (event.key === 'Enter' || event.code === 'NumpadEnter') &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.altKey &&
-        !event.shiftKey;
-
-      if (event.metaKey && key === 'k' && !event.repeat) {
-        event.preventDefault();
-        setShowActions((prev) => !prev);
-        return;
-      }
-
-      if (showActions) return;
-
-      if (event.metaKey && key === 'f' && !event.repeat) {
-        event.preventDefault();
-        if (event.shiftKey) {
-          void handleSwitchCamera();
-        } else {
-          handleFlipCamera();
-        }
-        return;
-      }
-
-      if (event.metaKey && key === 'o' && !event.repeat) {
-        event.preventDefault();
-        void handleOpenLastCapture();
-        return;
-      }
-
-      if (event.metaKey && key === 'w' && !event.repeat) {
-        event.preventDefault();
-        closeCamera();
-        return;
-      }
-
-      if (isPlainEnter && !showActions) {
-        event.preventDefault();
-        if (!captureAction.disabled) {
-          executeAction(captureAction);
-        }
-        return;
-      }
-
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        closeCamera();
-      }
-    },
-    [actions, captureAction, closeCamera, executeAction, handleFlipCamera, handleOpenLastCapture, handleSwitchCamera, showActions]
-  );
-
-  useEffect(() => {
-    const onWindowKeyDown = (event: KeyboardEvent) => {
-      handleKeyDown(event);
-    };
-    window.addEventListener('keydown', onWindowKeyDown, true);
-    return () => window.removeEventListener('keydown', onWindowKeyDown, true);
-  }, [handleKeyDown]);
+  useContainerShortcuts({
+    actions,
+    toggleActionPanel: () => setShowActions((v) => !v),
+    pop: closeCamera,
+    beforeActionExecute: () => setShowActions(false),
+    afterActionExecute: () => refocusCameraRoot(),
+    overlayOpen: showActions,
+    extraCommands: [
+      {
+        id: 'camera-capture',
+        plainKey: 'Enter',
+        modifierMatch: { meta: false, alt: false, ctrl: false, shift: false },
+        handler: () => { if (!captureAction.disabled) executeAction(captureAction); },
+        when: () => !showActions,
+      },
+    ],
+  });
 
   const renderMainContent = () => {
     if (permissionState === 'granted') {
@@ -625,7 +579,6 @@ const CameraExtension: React.FC<CameraExtensionProps> = ({ onClose }) => {
     <div
       ref={rootRef}
       className="relative w-full h-full flex flex-col"
-      onKeyDown={handleKeyDown}
       tabIndex={0}
     >
       <button

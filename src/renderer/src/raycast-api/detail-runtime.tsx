@@ -3,9 +3,12 @@
  * Purpose: Detail component runtime and metadata primitives.
  */
 
-import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useContext, useMemo, useState } from 'react';
 import { normalizeScAssetUrl, resolveReadableTintColor, resolveTintColor, toScAssetUrl } from './icon-runtime-assets';
 import { renderSimpleMarkdown } from './detail-markdown';
+import { KeyModifier } from './action-runtime-types';
+import { useContainerShortcuts } from './hooks/use-container-shortcuts';
+import type { ShortcutCommand } from './hooks/use-shortcuts';
 
 type ExtractedActionLike = {
   title: string;
@@ -107,24 +110,25 @@ export function createDetailRuntime(deps: CreateDetailRuntimeDeps) {
     const footerTitle = navigationTitle || extInfo.extensionDisplayName || extensionContext.extensionDisplayName || extensionContext.extensionName || 'Extension';
     const footerIcon = extInfo.extensionIconDataUrl || extensionContext.extensionIconDataUrl;
 
-    useEffect(() => {
-      const handler = (event: KeyboardEvent) => {
-        if (event.key === 'Escape') { event.preventDefault(); pop(); return; }
-        if (deps.isMetaK(event)) { event.preventDefault(); setShowActions((prev) => !prev); return; }
-        if (event.key === 'Enter' && event.metaKey && !event.repeat && primaryAction) { event.preventDefault(); primaryAction.execute(); return; }
-        if (!event.repeat) {
-          for (const action of detailActions) {
-            if (action.shortcut && deps.matchesShortcut(event, action.shortcut)) {
-              event.preventDefault();
-              action.execute();
-              return;
-            }
-          }
-        }
-      };
-      window.addEventListener('keydown', handler);
-      return () => window.removeEventListener('keydown', handler);
-    }, [detailActions, pop, primaryAction]);
+    const detailSubmitCommands = useMemo<ShortcutCommand[]>(
+      () => [
+        {
+          id: 'detail-submit',
+          shortcut: { key: 'Enter', modifiers: [KeyModifier.Cmd] },
+          handler: () => primaryAction?.execute(),
+          enabled: !!primaryAction,
+        },
+      ],
+      [primaryAction],
+    );
+
+    useContainerShortcuts({
+      actions: detailActions,
+      toggleActionPanel: () => setShowActions((v) => !v),
+      pop,
+      extraCommands: detailSubmitCommands,
+      overlayOpen: showActions,
+    });
 
     const handleActionExecute = useCallback((action: ExtractedActionLike) => {
       setShowActions(false);

@@ -22,6 +22,7 @@ import ExtensionActionFooter from './components/ExtensionActionFooter';
 import type { ActionShortcut, ExtractedAction } from './raycast-api/action-runtime-types';
 import { KeyModifier } from './raycast-api/action-runtime-types';
 import { InternalActionPanelOverlay } from './raycast-api';
+import { useContainerShortcuts } from './raycast-api/hooks/use-container-shortcuts';
 
 // Excalidraw's UMD bundle expects React/ReactDOM as window globals
 (window as any).React = React;
@@ -382,57 +383,34 @@ const CanvasEditorView: React.FC<CanvasEditorViewProps> = ({ mode, canvasId }) =
   ], [theme, handleExportImage, handleCopyAsImage, handleExportJSON, handleNewCanvas, handleToggleTheme, handleReset]);
 
   // Keyboard shortcuts
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      // When actions menu is open, let it handle its own shortcuts if needed
-      if (showActions) return;
-
-      if (e.key === 's' && e.metaKey) {
-        e.preventDefault();
-        handleSaveNow();
-        return;
+  useContainerShortcuts({
+    actions,
+    toggleActionPanel: () => setShowActions((v) => !v),
+    pop: () => {
+      // Save scene + thumbnail before closing
+      if (currentCanvasId && excalidrawApiRef.current) {
+        const elements = excalidrawApiRef.current.getSceneElements();
+        const { collaborators, ...appState } = excalidrawApiRef.current.getAppState();
+        const files = excalidrawApiRef.current.getFiles();
+        Promise.all([
+          window.electron.canvasSaveScene(currentCanvasId, { elements, appState, files }),
+          saveThumbnailAsync(elements, appState, files),
+        ]).finally(() => window.close());
+      } else {
+        window.close();
       }
-      if (e.key === 'e' && e.metaKey && e.shiftKey) {
-        e.preventDefault();
-        handleExportImage();
-        return;
-      }
-      if (e.key === 'c' && e.metaKey && e.shiftKey) {
-        e.preventDefault();
-        handleCopyAsImage();
-        return;
-      }
-      if (e.key === 'n' && e.metaKey) {
-        e.preventDefault();
-        handleNewCanvas();
-        return;
-      }
-      if (e.key === 'k' && e.metaKey) {
-        e.preventDefault();
-        setShowActions((v) => !v);
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        // Save scene + thumbnail before closing
-        if (currentCanvasId && excalidrawApiRef.current) {
-          const elements = excalidrawApiRef.current.getSceneElements();
-          const { collaborators, ...appState } = excalidrawApiRef.current.getAppState();
-          const files = excalidrawApiRef.current.getFiles();
-          Promise.all([
-            window.electron.canvasSaveScene(currentCanvasId, { elements, appState, files }),
-            saveThumbnailAsync(elements, appState, files),
-          ]).finally(() => window.close());
-        } else {
-          window.close();
-        }
-        return;
-      }
-    };
-    // Use capture phase so we intercept before Excalidraw's own handlers
-    window.addEventListener('keydown', handler, true);
-    return () => window.removeEventListener('keydown', handler, true);
-  }, [showActions, actions, handleSaveNow, handleExportImage, handleCopyAsImage, handleNewCanvas, currentCanvasId, saveThumbnailAsync]);
+    },
+    beforeActionExecute: () => setShowActions(false),
+    overlayOpen: showActions,
+    extraCommands: [
+      {
+        id: 'canvas-save',
+        plainKey: 's',
+        modifierMatch: { meta: true, shift: false },
+        handler: () => handleSaveNow(),
+      },
+    ],
+  });
 
   // Load library items sent from main process (via "Add to Excalidraw" in library browser)
   useEffect(() => {

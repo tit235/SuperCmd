@@ -8,6 +8,7 @@ import {
 import type { ExtractedAction } from './raycast-api/action-runtime-types';
 import { KeyModifier } from './raycast-api/action-runtime-types';
 import { InternalActionPanelOverlay } from './raycast-api';
+import { useContainerShortcuts } from './raycast-api/hooks/use-container-shortcuts';
 import ExtensionActionFooter from './components/ExtensionActionFooter';
 import type { FileSearchIndexStatus } from '../types/electron';
 
@@ -526,89 +527,39 @@ const FileSearchExtension: React.FC<FileSearchExtensionProps> = ({ onClose, init
     ];
   }, [selectedPath, openSelectedFile, showSelectedDetails, copySelectedFile, revealSelectedFile]);
 
-  const handleKeyDown = useCallback(
-    async (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if (e.key.toLowerCase() === 'k' && e.metaKey && !e.repeat) {
-        e.preventDefault();
-        setShowActions((prev) => !prev);
-        return;
-      }
-
-      if (showActions) return;
-
-      if (showDetails) {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          if (e.metaKey) {
-            await revealSelectedFile();
-            return;
-          }
-          await openSelectedFile();
-          return;
-        }
-        if (e.key.toLowerCase() === 'c' && e.metaKey && e.shiftKey) {
-          e.preventDefault();
-          await copySelectedFile();
-          return;
-        }
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          setShowDetails(false);
-        }
-        return;
-      }
-
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSelectedIndex((prev) => (prev < visibleResults.length - 1 ? prev + 1 : prev));
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSelectedIndex((prev) => (prev > 0 ? prev - 1 : 0));
-        return;
-      }
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        if (e.metaKey) {
-          await revealSelectedFile();
-          return;
-        }
-        await openSelectedFile();
-        return;
-      }
-      if (e.key.toLowerCase() === 'd' && e.metaKey) {
-        e.preventDefault();
-        showSelectedDetails();
-        return;
-      }
-      if (e.key.toLowerCase() === 'c' && e.metaKey && e.shiftKey) {
-        e.preventDefault();
-        await copySelectedFile();
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      }
-    },
-    [
-      showActions,
-      selectedActions,
-      showDetails,
-      visibleResults.length,
-      revealSelectedFile,
-      openSelectedFile,
-      showSelectedDetails,
-      copySelectedFile,
-      onClose,
-    ]
-  );
-
-
+  useContainerShortcuts({
+    actions: selectedActions,
+    toggleActionPanel: () => setShowActions((v) => !v),
+    pop: onClose,
+    beforeActionExecute: () => setShowActions(false),
+    overlayOpen: showActions,
+    extraCommands: [
+      // When the detail panel is open, Escape closes it instead of closing the whole view
+      {
+        id: 'escape-details',
+        plainKey: 'Escape',
+        handler: () => setShowDetails(false),
+        priority: 10,
+        when: () => showDetails,
+      },
+      // List navigation (suppressed when detail panel is open)
+      {
+        id: 'nav-down',
+        plainKey: 'ArrowDown',
+        handler: () => setSelectedIndex((prev) => prev < visibleResults.length - 1 ? prev + 1 : prev),
+        when: () => !showDetails,
+      },
+      {
+        id: 'nav-up',
+        plainKey: 'ArrowUp',
+        handler: () => setSelectedIndex((prev) => prev > 0 ? prev - 1 : 0),
+        when: () => !showDetails,
+      },
+    ],
+  });
 
   return (
-    <div className="w-full h-full flex flex-col relative" onKeyDown={handleKeyDown} tabIndex={-1}>
+    <div className="w-full h-full flex flex-col relative" tabIndex={-1}>
       <div className="flex items-center gap-2 px-3.5 py-2 border-b border-[var(--ui-divider)]">
         <button
           onClick={() => {

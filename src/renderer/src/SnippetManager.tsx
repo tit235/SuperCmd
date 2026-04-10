@@ -18,6 +18,7 @@ import InlineArgumentField, { InlineArgumentOverflowBadge } from './components/I
 import type { ExtractedAction, ActionShortcut } from './raycast-api/action-runtime-types';
 import { KeyModifier } from './raycast-api/action-runtime-types';
 import { InternalActionPanelOverlay } from './raycast-api';
+import { useContainerShortcuts } from './raycast-api/hooks/use-container-shortcuts';
 
 interface SnippetManagerProps {
   onClose: () => void;
@@ -775,128 +776,61 @@ const SnippetManager: React.FC<SnippetManagerProps> = ({ onClose, initialView })
     },
   ];
 
-  const isMetaEnter = (e: React.KeyboardEvent) =>
-    e.metaKey &&
-    (e.key === 'Enter' || e.key === 'Return' || e.code === 'Enter' || e.code === 'NumpadEnter');
   // ─── Keyboard ───────────────────────────────────────────────────
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'k' && e.metaKey && !e.repeat) {
-        e.preventDefault();
-        setShowActions((p) => !p);
-        return;
-      }
-
-      if (dynamicPrompt) {
-        const plainEnter =
-          (e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter') &&
-          !e.metaKey &&
-          !e.ctrlKey &&
-          !e.altKey &&
-          !e.shiftKey;
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          setDynamicPrompt(null);
-        } else if (plainEnter || (e.key === 'Enter' && e.metaKey)) {
-          e.preventDefault();
-          handleConfirmDynamicPrompt();
-        }
-        return;
-      }
-
-      if (showActions) return;
-
-      if (e.key.toLowerCase() === 'e' && e.metaKey) {
-        e.preventDefault();
-        handleEdit();
-        return;
-      }
-      if (e.key.toLowerCase() === 'd' && e.metaKey) {
-        e.preventDefault();
-        handleDuplicate();
-        return;
-      }
-      if (e.key.toLowerCase() === 'p' && e.metaKey && e.shiftKey) {
-        e.preventDefault();
-        handleTogglePin();
-        return;
-      }
-      if (e.key.toLowerCase() === 'n' && e.metaKey) {
-        e.preventDefault();
-        setView('create');
-        return;
-      }
-      if (e.key.toLowerCase() === 's' && e.metaKey && e.shiftKey) {
-        e.preventDefault();
-        window.electron.snippetExport();
-        return;
-      }
-      if (e.key.toLowerCase() === 'i' && e.metaKey && e.shiftKey) {
-        e.preventDefault();
-        window.electron.snippetImport().then((result) => {
-          loadSnippets();
-          if (result.imported > 0 || result.skipped > 0) {
-            setImportResult(result);
-            setTimeout(() => setImportResult(null), 4000);
-          }
-        });
-        return;
-      }
-      if (e.key.toLowerCase() === 'x' && e.ctrlKey && e.shiftKey) {
-        e.preventDefault();
-        handleDeleteAll();
-        return;
-      }
-      if (e.key.toLowerCase() === 'x' && e.ctrlKey) {
-        e.preventDefault();
-        handleDelete();
-        return;
-      }
-      if (isMetaEnter(e)) {
-        e.preventDefault();
-        handleCopy();
-        return;
-      }
-
-      switch (e.key) {
-        case 'ArrowDown':
-          e.preventDefault();
-          setSelectedIndex((prev) =>
-            prev < filteredSnippets.length - 1 ? prev + 1 : prev
-          );
-          break;
-
-        case 'ArrowUp':
-          e.preventDefault();
-          setSelectedIndex((prev) => (prev > 0 ? prev - 1 : 0));
-          break;
-
-        case 'Enter':
-          e.preventDefault();
-          if (!e.repeat && activeSnippet) {
-            handlePaste();
-          }
-          break;
-
-        case 'Backspace':
-        case 'Delete':
-          if (e.metaKey || e.ctrlKey) {
-            e.preventDefault();
-            if (filteredSnippets[selectedIndex]) {
-              handleDelete();
-            }
-          }
-          break;
-
-        case 'Escape':
-          e.preventDefault();
-          onClose();
-          break;
-      }
-    },
-    [showActions, actions, filteredSnippets, selectedIndex, onClose, dynamicPrompt, activeSnippet, loadSnippets]
-  );
+  useContainerShortcuts({
+    actions,
+    toggleActionPanel: () => setShowActions((v) => !v),
+    pop: onClose,
+    beforeActionExecute: () => setShowActions(false),
+    afterActionExecute: () => setTimeout(() => inputRef.current?.focus(), 0),
+    overlayOpen: showActions,
+    extraCommands: [
+      // dynamicPrompt mode: Escape dismisses the prompt, Enter confirms it.
+      // Priority 10 ensures these fire before the global __escape (priority 5).
+      {
+        id: 'dynamic-escape',
+        plainKey: 'Escape',
+        handler: () => setDynamicPrompt(null),
+        priority: 10,
+        when: () => !!dynamicPrompt,
+      },
+      {
+        id: 'dynamic-confirm',
+        plainKey: 'Enter',
+        handler: () => handleConfirmDynamicPrompt(),
+        priority: 10,
+        when: () => !!dynamicPrompt,
+      },
+      // Normal navigation (suppressed while dynamicPrompt is active)
+      {
+        id: 'nav-down',
+        plainKey: 'ArrowDown',
+        handler: () => setSelectedIndex((prev) => prev < filteredSnippets.length - 1 ? prev + 1 : prev),
+        when: () => !dynamicPrompt,
+      },
+      {
+        id: 'nav-up',
+        plainKey: 'ArrowUp',
+        handler: () => setSelectedIndex((prev) => prev > 0 ? prev - 1 : 0),
+        when: () => !dynamicPrompt,
+      },
+      {
+        id: 'delete-backspace',
+        plainKey: 'Backspace',
+        modifierMatch: { meta: true },
+        handler: () => { if (filteredSnippets[selectedIndex]) handleDelete(); },
+        when: () => !dynamicPrompt,
+      },
+      {
+        id: 'delete-del',
+        plainKey: 'Delete',
+        modifierMatch: { meta: true },
+        handler: () => { if (filteredSnippets[selectedIndex]) handleDelete(); },
+        when: () => !dynamicPrompt,
+      },
+    ],
+  });
 
   // ─── Render: Create / Edit ──────────────────────────────────────
 
@@ -925,7 +859,7 @@ const SnippetManager: React.FC<SnippetManagerProps> = ({ onClose, initialView })
   };
 
   return (
-    <div className="snippet-view snippet-search-view w-full h-full flex flex-col" onKeyDown={handleKeyDown} tabIndex={-1}>
+    <div className="snippet-view snippet-search-view w-full h-full flex flex-col" tabIndex={-1}>
       {/* Header */}
       <div className="snippet-header flex h-16 items-center gap-2 px-4">
         <button

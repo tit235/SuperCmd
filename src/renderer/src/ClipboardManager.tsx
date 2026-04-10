@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useContainerShortcuts } from './raycast-api/hooks/use-container-shortcuts';
 import { Search, X, Trash2, Copy, Clipboard, Image as ImageIcon, Link, FileText, ArrowLeft, Pin, Save, FileDown } from 'lucide-react';
 import type { ClipboardItem } from '../types/electron';
 import ExtensionActionFooter from './components/ExtensionActionFooter';
@@ -325,74 +326,38 @@ const ClipboardManager: React.FC<ClipboardManagerProps> = ({ onClose }) => {
     style: 'destructive',
   });
 
-  const isMetaEnter = (e: React.KeyboardEvent) =>
-    e.metaKey &&
-    (e.key === 'Enter' || e.key === 'Return' || e.code === 'Enter' || e.code === 'NumpadEnter');
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'k' && e.metaKey && !e.repeat) {
-        e.preventDefault();
-        setShowActions(p => !p);
-        return;
-      }
-
-      if (showActions) return;
-
-      if (isMetaEnter(e)) {
-        e.preventDefault();
-        void handleCopyToClipboard();
-        return;
-      }
-      if (e.key.toLowerCase() === 'x' && e.ctrlKey && e.shiftKey) {
-        e.preventDefault();
-        handleClearAll();
-        return;
-      }
-      if (e.key.toLowerCase() === 'x' && e.ctrlKey) {
-        e.preventDefault();
-        handleDeleteItem();
-        return;
-      }
-
-      switch (e.key) {
-        case 'ArrowDown':
-          e.preventDefault();
-          setSelectedIndex((prev) =>
-            prev < filteredItems.length - 1 ? prev + 1 : prev
-          );
-          break;
-
-        case 'ArrowUp':
-          e.preventDefault();
-          setSelectedIndex((prev) => (prev > 0 ? prev - 1 : 0));
-          break;
-
-        case 'Enter':
-          e.preventDefault();
-          if (!e.repeat && filteredItems[selectedIndex]) {
-            handlePasteItem();
-          }
-          break;
-
-        case 'Backspace':
-        case 'Delete':
-          if (e.metaKey) {
-            e.preventDefault();
-            if (filteredItems[selectedIndex]) {
-              handleDeleteItem();
-            }
-          }
-          break;
-
-        case 'Escape':
-          e.preventDefault();
-          onClose();
-          break;
-      }
-    },
-    [filteredItems, selectedIndex, onClose, showActions, actions, canSaveAsSnippet]
-  );
+  useContainerShortcuts({
+    actions,
+    toggleActionPanel: () => setShowActions((v) => !v),
+    pop: onClose,
+    beforeActionExecute: () => setShowActions(false),
+    afterActionExecute: () => requestAnimationFrame(() => inputRef.current?.focus()),
+    overlayOpen: showActions,
+    extraCommands: [
+      {
+        id: 'nav-down',
+        plainKey: 'ArrowDown',
+        handler: () => setSelectedIndex((prev) => prev < filteredItems.length - 1 ? prev + 1 : prev),
+      },
+      {
+        id: 'nav-up',
+        plainKey: 'ArrowUp',
+        handler: () => setSelectedIndex((prev) => prev > 0 ? prev - 1 : 0),
+      },
+      {
+        id: 'delete-backspace',
+        plainKey: 'Backspace',
+        modifierMatch: { meta: true },
+        handler: () => { if (filteredItems[selectedIndex]) handleDeleteItem(); },
+      },
+      {
+        id: 'delete-del',
+        plainKey: 'Delete',
+        modifierMatch: { meta: true },
+        handler: () => { if (filteredItems[selectedIndex]) handleDeleteItem(); },
+      },
+    ],
+  });
 
   const formatDate = (timestamp: number): string =>
     new Date(timestamp).toLocaleString(undefined, {
@@ -417,7 +382,7 @@ const ClipboardManager: React.FC<ClipboardManagerProps> = ({ onClose }) => {
   };
 
   return (
-    <div className="w-full h-full flex flex-col" onKeyDown={handleKeyDown} tabIndex={-1}>
+    <div className="w-full h-full flex flex-col" tabIndex={-1}>
       {/* Header - transparent background same as main screen */}
       <div className="flex items-center gap-3 px-5 py-3.5 border-b border-[var(--ui-divider)]">
         <button

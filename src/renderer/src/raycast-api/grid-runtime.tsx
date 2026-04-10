@@ -9,6 +9,8 @@ import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } 
 import type { ExtractedAction, ActionShortcut } from './action-runtime-types';
 import { createGridItemsRuntime } from './grid-runtime-items';
 import { groupGridItems, useGridRegistry } from './grid-runtime-hooks';
+import { useContainerShortcuts } from './hooks/use-container-shortcuts';
+import type { ShortcutCommand } from './hooks/use-shortcuts';
 
 interface GridRuntimeDeps {
   ExtensionInfoReactContext: React.Context<any>;
@@ -126,40 +128,47 @@ export function createGridRuntime(deps: GridRuntimeDeps) {
     const activeActionsElement = selectedItem?.props?.actions || (filteredItems.length === 0 ? emptyViewProps?.actions : null) || gridActions;
     const primaryAction = selectedActions[0];
 
-    const handleKeyDown = useCallback(
-      (event: React.KeyboardEvent) => {
-        if (isMetaK(event)) {
-          event.preventDefault();
-          setShowActions((value) => !value);
-          return;
-        }
-
-        if ((event.metaKey || event.altKey || event.ctrlKey) && !event.repeat) {
-          for (const action of selectedActions) {
-            if (!action.shortcut || !matchesShortcut(event, action.shortcut)) continue;
-            event.preventDefault();
-            event.stopPropagation();
-            setShowActions(false);
-            action.execute();
-            setTimeout(() => inputRef.current?.focus(), 0);
-            return;
-          }
-        }
-
-        if (showActions) return;
-
-        if (event.key === 'ArrowRight') setSelectedIdx((value) => Math.min(value + 1, filteredItems.length - 1));
-        else if (event.key === 'ArrowLeft') setSelectedIdx((value) => Math.max(value - 1, 0));
-        else if (event.key === 'ArrowDown') setSelectedIdx((value) => Math.min(value + cols, filteredItems.length - 1));
-        else if (event.key === 'ArrowUp') setSelectedIdx((value) => Math.max(value - cols, 0));
-        else if (event.key === 'Enter' && !event.repeat) primaryAction?.execute();
-        else if (event.key === 'Escape') pop();
-        else return;
-
-        event.preventDefault();
-      },
-      [cols, filteredItems.length, isMetaK, matchesShortcut, pop, primaryAction, selectedActions, showActions],
+    const gridNavCommands = useMemo<ShortcutCommand[]>(
+      () => [
+        {
+          id: 'grid-nav-right',
+          shortcut: { key: 'ArrowRight', modifiers: [] },
+          handler: () => setSelectedIdx((v) => Math.min(v + 1, filteredItems.length - 1)),
+        },
+        {
+          id: 'grid-nav-left',
+          shortcut: { key: 'ArrowLeft', modifiers: [] },
+          handler: () => setSelectedIdx((v) => Math.max(v - 1, 0)),
+        },
+        {
+          id: 'grid-nav-down',
+          shortcut: { key: 'ArrowDown', modifiers: [] },
+          handler: () => setSelectedIdx((v) => Math.min(v + cols, filteredItems.length - 1)),
+        },
+        {
+          id: 'grid-nav-up',
+          shortcut: { key: 'ArrowUp', modifiers: [] },
+          handler: () => setSelectedIdx((v) => Math.max(v - cols, 0)),
+        },
+        {
+          id: 'grid-primary',
+          shortcut: { key: 'Enter', modifiers: [] },
+          handler: () => primaryAction?.execute(),
+          enabled: !!primaryAction,
+        },
+      ],
+      [cols, filteredItems.length, primaryAction],
     );
+
+    useContainerShortcuts({
+      actions: selectedActions,
+      toggleActionPanel: () => setShowActions((v) => !v),
+      pop,
+      beforeActionExecute: () => setShowActions(false),
+      afterActionExecute: () => setTimeout(() => inputRef.current?.focus(), 0),
+      extraCommands: gridNavCommands,
+      overlayOpen: showActions,
+    });
 
     useEffect(() => {
       if (filteredItems.length === 0) {
@@ -200,7 +209,7 @@ export function createGridRuntime(deps: GridRuntimeDeps) {
           )}
         </div>
 
-        <div className="flex flex-col h-full" onKeyDown={handleKeyDown}>
+        <div className="flex flex-col h-full">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--ui-divider)]">
             <button onClick={pop} className="sc-back-button text-[var(--text-subtle)] hover:text-[var(--text-muted)] transition-colors flex-shrink-0 p-0.5">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>

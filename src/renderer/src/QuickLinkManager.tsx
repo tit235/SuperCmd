@@ -26,6 +26,7 @@ import SearchableDropdown, { type SearchableDropdownOption } from './components/
 import type { ExtractedAction } from './raycast-api/action-runtime-types';
 import { KeyModifier } from './raycast-api/action-runtime-types';
 import { InternalActionPanelOverlay } from './raycast-api';
+import { useContainerShortcuts } from './raycast-api/hooks/use-container-shortcuts';
 import {
   getQuickLinkIconLabel,
   getQuickLinkIconOption,
@@ -1592,92 +1593,53 @@ const QuickLinkManager: React.FC<QuickLinkManagerProps> = ({ onClose, initialVie
     event.metaKey &&
     (event.key === 'Enter' || event.key === 'Return' || event.code === 'Enter' || event.code === 'NumpadEnter');
 
-  const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
-    if (event.key === 'k' && event.metaKey && !event.repeat) {
-      event.preventDefault();
-      event.stopPropagation();
-      setShowActions((prev) => {
-        const next = !prev;
-        if (next) {
-          const active = document.activeElement as HTMLElement | null;
-          if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) {
-            active.blur();
-          }
+  useContainerShortcuts({
+    actions,
+    toggleActionPanel: () => setShowActions((prev) => {
+      const next = !prev;
+      if (next) {
+        const active = document.activeElement as HTMLElement | null;
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) {
+          active.blur();
         }
-        return next;
-      });
-      return;
-    }
-
-    if (dynamicPrompt) {
-      const plainEnter =
-        (event.key === 'Enter' || event.code === 'Enter' || event.code === 'NumpadEnter') &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.altKey &&
-        !event.shiftKey;
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setDynamicPrompt(null);
-        return;
       }
-      if (plainEnter || (event.key === 'Enter' && event.metaKey)) {
-        event.preventDefault();
-        void handleConfirmDynamicPrompt();
-        return;
-      }
-    }
-
-    if (showActions) return;
-
-    if (event.key.toLowerCase() === 'n' && event.metaKey) {
-      event.preventDefault();
-      setEditingQuickLink(undefined);
-      setView('create');
-      return;
-    }
-    if (event.key.toLowerCase() === 'e' && event.metaKey) {
-      event.preventDefault();
-      handleEdit();
-      return;
-    }
-    if (event.key.toLowerCase() === 'd' && event.metaKey) {
-      event.preventDefault();
-      void handleDuplicate();
-      return;
-    }
-    if (event.key.toLowerCase() === 'x' && event.ctrlKey) {
-      event.preventDefault();
-      void handleDelete();
-      return;
-    }
-    if (isMetaEnter(event)) {
-      event.preventDefault();
-      void handleOpen();
-      return;
-    }
-
-    switch (event.key) {
-      case 'ArrowDown':
-        event.preventDefault();
-        setSelectedIndex((prev) => (prev < filteredQuickLinks.length - 1 ? prev + 1 : prev));
-        break;
-      case 'ArrowUp':
-        event.preventDefault();
-        setSelectedIndex((prev) => (prev > 0 ? prev - 1 : 0));
-        break;
-      case 'Enter':
-        event.preventDefault();
-        if (!event.repeat) {
-          void handleOpen();
-        }
-        break;
-      case 'Escape':
-        event.preventDefault();
-        onClose();
-        break;
-    }
-  }, [actions, dynamicPrompt, filteredQuickLinks.length, handleConfirmDynamicPrompt, handleDelete, handleDuplicate, handleEdit, handleOpen, onClose, showActions]);
+      return next;
+    }),
+    pop: onClose,
+    beforeActionExecute: () => setShowActions(false),
+    afterActionExecute: () => setTimeout(() => inputRef.current?.focus(), 0),
+    overlayOpen: showActions,
+    extraCommands: [
+      // dynamicPrompt mode: Escape dismisses the prompt, Enter/Meta+Enter confirms it.
+      {
+        id: 'dynamic-escape',
+        plainKey: 'Escape',
+        handler: () => setDynamicPrompt(null),
+        priority: 10,
+        when: () => !!dynamicPrompt,
+      },
+      {
+        id: 'dynamic-confirm',
+        plainKey: 'Enter',
+        handler: () => handleConfirmDynamicPrompt(),
+        priority: 10,
+        when: () => !!dynamicPrompt,
+      },
+      // Navigation (suppressed while dynamicPrompt is active)
+      {
+        id: 'nav-down',
+        plainKey: 'ArrowDown',
+        handler: () => setSelectedIndex((prev) => prev < filteredQuickLinks.length - 1 ? prev + 1 : prev),
+        when: () => !dynamicPrompt,
+      },
+      {
+        id: 'nav-up',
+        plainKey: 'ArrowUp',
+        handler: () => setSelectedIndex((prev) => prev > 0 ? prev - 1 : 0),
+        when: () => !dynamicPrompt,
+      },
+    ],
+  });
 
   if (view === 'create' || view === 'edit') {
     return (
@@ -1694,7 +1656,7 @@ const QuickLinkManager: React.FC<QuickLinkManagerProps> = ({ onClose, initialVie
   }
 
   return (
-    <div className="snippet-view snippet-search-view w-full h-full flex flex-col" onKeyDown={handleKeyDown} tabIndex={-1}>
+    <div className="snippet-view snippet-search-view w-full h-full flex flex-col" tabIndex={-1}>
       <div className="snippet-header flex h-16 items-center gap-2 px-4">
         <button
           onClick={onClose}

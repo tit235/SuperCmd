@@ -7,6 +7,8 @@
 
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ExtractedAction, ActionShortcut } from './action-runtime-types';
+import { useContainerShortcuts } from './hooks/use-container-shortcuts';
+import type { ShortcutCommand } from './hooks/use-shortcuts';
 import { useI18n } from '../i18n';
 import { createListDetailRuntime } from './list-runtime-detail';
 import { groupListItems, shouldUseEmojiGrid, useListRegistry } from './list-runtime-hooks';
@@ -143,60 +145,51 @@ export function createListRuntime(deps: ListRuntimeDeps) {
     }), [selectedItem?.id, actionRegistry, ActionRegistryContext]);
     const primaryAction = selectedActions[0];
 
-    const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
-      if (isMetaK(event)) {
-        event.preventDefault();
-        setShowActions((value) => !value);
-        return;
-      }
+    const listNavCommands = useMemo<ShortcutCommand[]>(
+      () => [
+        {
+          id: 'list-nav-right',
+          shortcut: { key: 'ArrowRight', modifiers: [] },
+          handler: () => setSelectedIdx((v) => Math.min(v + 1, filteredItems.length - 1)),
+          when: () => shouldUseEmojiGridValue,
+        },
+        {
+          id: 'list-nav-left',
+          shortcut: { key: 'ArrowLeft', modifiers: [] },
+          handler: () => setSelectedIdx((v) => Math.max(v - 1, 0)),
+          when: () => shouldUseEmojiGridValue,
+        },
+        {
+          id: 'list-nav-down',
+          shortcut: { key: 'ArrowDown', modifiers: [] },
+          handler: () =>
+            setSelectedIdx((v) => Math.min(v + (shouldUseEmojiGridValue ? 8 : 1), filteredItems.length - 1)),
+        },
+        {
+          id: 'list-nav-up',
+          shortcut: { key: 'ArrowUp', modifiers: [] },
+          handler: () =>
+            setSelectedIdx((v) => Math.max(v - (shouldUseEmojiGridValue ? 8 : 1), 0)),
+        },
+        {
+          id: 'list-primary',
+          shortcut: { key: 'Enter', modifiers: [] },
+          handler: () => primaryAction?.execute(),
+          enabled: !!primaryAction,
+        },
+      ],
+      [filteredItems.length, shouldUseEmojiGridValue, primaryAction],
+    );
 
-      if ((event.metaKey || event.altKey || event.ctrlKey) && !event.repeat) {
-        for (const action of selectedActions) {
-          if (!action.shortcut || !matchesShortcut(event, action.shortcut)) continue;
-          event.preventDefault();
-          event.stopPropagation();
-          setShowActions(false);
-          action.execute();
-          setTimeout(() => inputRef.current?.focus(), 0);
-          return;
-        }
-      }
-      if (showActions) return;
-
-      if (event.key === 'ArrowRight' && shouldUseEmojiGridValue) setSelectedIdx((value) => Math.min(value + 1, filteredItems.length - 1));
-      else if (event.key === 'ArrowLeft' && shouldUseEmojiGridValue) setSelectedIdx((value) => Math.max(value - 1, 0));
-      else if (event.key === 'ArrowDown') setSelectedIdx((value) => Math.min(value + (shouldUseEmojiGridValue ? 8 : 1), filteredItems.length - 1));
-      else if (event.key === 'ArrowUp') setSelectedIdx((value) => Math.max(value - (shouldUseEmojiGridValue ? 8 : 1), 0));
-      else if (event.key === 'Enter' && !event.repeat) primaryAction?.execute();
-      else if (event.key === 'Escape') pop();
-      else return;
-
-      event.preventDefault();
-    }, [filteredItems.length, isMetaK, matchesShortcut, pop, primaryAction, selectedActions, shouldUseEmojiGridValue, showActions]);
-
-    useEffect(() => {
-      const handler = (event: KeyboardEvent) => {
-        if (isMetaK(event) && !event.repeat) {
-          event.preventDefault();
-          event.stopPropagation();
-          setShowActions((value) => !value);
-          return;
-        }
-        if (!event.metaKey && !event.altKey && !event.ctrlKey) return;
-        if (event.repeat) return;
-        for (const action of selectedActions) {
-          if (!action.shortcut || !matchesShortcut(event, action.shortcut)) continue;
-          event.preventDefault();
-          event.stopPropagation();
-          setShowActions(false);
-          action.execute();
-          setTimeout(() => inputRef.current?.focus(), 0);
-          return;
-        }
-      };
-      window.addEventListener('keydown', handler, true);
-      return () => window.removeEventListener('keydown', handler, true);
-    }, [isMetaK, matchesShortcut, selectedActions]);
+    useContainerShortcuts({
+      actions: selectedActions,
+      toggleActionPanel: () => setShowActions((v) => !v),
+      pop,
+      beforeActionExecute: () => setShowActions(false),
+      afterActionExecute: () => setTimeout(() => inputRef.current?.focus(), 0),
+      extraCommands: listNavCommands,
+      overlayOpen: showActions,
+    });
 
     const prevFilteredItemsRef = useRef(filteredItems);
     useEffect(() => {
@@ -323,7 +316,7 @@ export function createListRuntime(deps: ListRuntimeDeps) {
           {listLevelActionsElement && <ActionRegistryContext.Provider value={actionRegistry}><div key={filteredItems.length === 0 ? '__list_empty_actions' : '__list_actions'}>{listLevelActionsElement}</div></ActionRegistryContext.Provider>}
         </div>
 
-        <div className="flex flex-col h-full" onKeyDown={handleKeyDown}>
+        <div className="flex flex-col h-full">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--ui-divider)]">
             <button onClick={pop} className="sc-back-button text-[var(--text-subtle)] hover:text-[var(--text-muted)] transition-colors flex-shrink-0 p-0.5"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg></button>
             <input ref={inputRef} data-supercmd-search-input="true" type="text" placeholder={searchBarPlaceholder || t('common.search')} value={internalSearch} onChange={(event) => handleSearchChange(event.target.value)} className="flex-1 bg-transparent border-none outline-none text-[var(--text-primary)] placeholder:text-[color:var(--text-subtle)] text-[14px] font-light" autoFocus />

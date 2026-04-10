@@ -27,6 +27,8 @@ import ExtensionActionFooter from './components/ExtensionActionFooter';
 import type { ExtractedAction, ActionShortcut } from './raycast-api/action-runtime-types';
 import { KeyModifier } from './raycast-api/action-runtime-types';
 import { InternalActionPanelOverlay } from './raycast-api';
+import { useContainerShortcuts } from './raycast-api/hooks/use-container-shortcuts';
+import { useShortcuts } from './raycast-api/hooks/use-shortcuts';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -1928,41 +1930,70 @@ const NotesManager: React.FC<NotesManagerProps> = ({ initialView }) => {
     return a;
   }, [targetNote, viewMode, loadNotes, handleNewNote, handleDuplicate, handleTogglePin, handleExport, notes]);
 
-  // ─── Keyboard: search view ──────────────────────────────────────
+  // ─── Keyboard: overlay + search navigation ─────────────────────────────────
 
-  useEffect(() => {
-    if (viewMode !== 'search') return;
-    const handler = (e: KeyboardEvent) => {
-      if (showActions || showBrowse) return;
-      if (e.key === 'k' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); setShowActions(true); return; }
-      if (e.key === 'n' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleNewNote(); return; }
-      if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIndex(i => Math.min(i + 1, notes.length - 1)); return; }
-      if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIndex(i => Math.max(0, i - 1)); return; }
-      if (e.key === 'Enter' && selectedNote) { e.preventDefault(); handleOpenNote(selectedNote); return; }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [viewMode, showActions, showBrowse, notes, selectedIndex, selectedNote, handleNewNote, handleOpenNote]);
+  useContainerShortcuts({
+    actions,
+    toggleActionPanel: () => setShowActions((v) => !v),
+    beforeActionExecute: () => setShowActions(false),
+    overlayOpen: showActions,
+    extraCommands: [
+      {
+        id: 'notes-new',
+        plainKey: 'n',
+        modifierMatch: { meta: true },
+        handler: () => handleNewNote(),
+        when: () => viewMode === 'search' && !showBrowse && !showActions,
+      },
+      {
+        id: 'notes-nav-down',
+        plainKey: 'ArrowDown',
+        handler: () => setSelectedIndex((i) => Math.min(i + 1, notes.length - 1)),
+        when: () => viewMode === 'search' && !showBrowse,
+      },
+      {
+        id: 'notes-nav-up',
+        plainKey: 'ArrowUp',
+        handler: () => setSelectedIndex((i) => Math.max(0, i - 1)),
+        when: () => viewMode === 'search' && !showBrowse,
+      },
+      {
+        id: 'notes-open',
+        plainKey: 'Enter',
+        handler: () => { if (selectedNote) handleOpenNote(selectedNote); },
+        when: () => viewMode === 'search' && !showBrowse && !!selectedNote,
+      },
+    ],
+  });
 
-  // ─── Keyboard: global shortcuts ──────────────────────────────────
+  // ─── Keyboard: global shortcuts (pin, export, copy) ─────────────────────────
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (showActions || showBrowse) return;
-      const meta = e.metaKey || e.ctrlKey;
-      if (meta && e.shiftKey && e.key === 'p') { e.preventDefault(); handleTogglePin(); return; }
-      if (meta && e.shiftKey && e.key === 'e') { e.preventDefault(); handleExport(); return; }
-      if (meta && e.shiftKey && e.key === 'c' && targetNote) { e.preventDefault(); window.electron.noteCopyToClipboard(targetNote.id, 'markdown'); return; }
-      if (meta && !e.shiftKey && !e.altKey && e.key >= '0' && e.key <= '9') {
-        const idx = e.key === '0' ? 0 : parseInt(e.key) - 1;
-        if (pinnedNotes[idx]) { e.preventDefault(); handleOpenNote(pinnedNotes[idx]); }
-        return;
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [showActions, showBrowse, targetNote, pinnedNotes, handleTogglePin, handleExport, handleOpenNote]);
-
+  useShortcuts(
+    [
+      {
+        id: 'notes-pin',
+        plainKey: 'p',
+        modifierMatch: { meta: true, shift: true },
+        handler: () => handleTogglePin(),
+        when: () => !showActions && !showBrowse,
+      },
+      {
+        id: 'notes-export',
+        plainKey: 'e',
+        modifierMatch: { meta: true, shift: true },
+        handler: () => handleExport(),
+        when: () => !showActions && !showBrowse,
+      },
+      {
+        id: 'notes-copy-md',
+        plainKey: 'c',
+        modifierMatch: { meta: true, shift: true },
+        handler: () => { if (targetNote) window.electron.noteCopyToClipboard(targetNote.id, 'markdown'); },
+        when: () => !showActions && !showBrowse && !!targetNote,
+      },
+    ],
+    { capture: true },
+  );
   // Listen for mode changes from main process (when window is reused)
   useEffect(() => {
     const cleanup = (window as any).electron?.onNotesMode?.((payload: any) => {
