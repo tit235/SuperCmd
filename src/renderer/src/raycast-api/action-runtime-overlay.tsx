@@ -90,10 +90,14 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
     actions,
     onClose,
     onExecute,
+    visible = true,
+    onShortcutOpen,
   }: {
     actions: ExtractedAction[];
     onClose: () => void;
     onExecute: (action: ExtractedAction) => void;
+    visible?: boolean;
+    onShortcutOpen?: () => void;
   }) {
     const [selectedIdx, setSelectedIdx] = useState(0);
     const [filter, setFilter] = useState('');
@@ -104,14 +108,69 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
     const runtimeCtx = snapshotExtensionContext();
     const assetsPath = String(runtimeCtx?.assetsPath || '').trim();
 
+    useEffect(() => {
+      if (!visible || !onShortcutOpen) return;
+      
+      const onWindowKeyDown = (e: KeyboardEvent) => {
+        if (e.defaultPrevented) return;
+        
+        // Handle Escape key to close submenu from anywhere
+        if (e.key === 'Escape' && submenuActions) {
+          e.preventDefault();
+          e.stopPropagation();
+          setSubmenuActions(null);
+          return;
+        }
+      };
+
+      window.addEventListener('keydown', onWindowKeyDown, true);
+      return () => window.removeEventListener('keydown', onWindowKeyDown, true);
+    }, [visible, submenuActions, onShortcutOpen]);
+
+    useEffect(() => {
+      if (visible || !onShortcutOpen) return;
+
+      const onWindowShortcutListener = (e: KeyboardEvent) => {
+        if (e.defaultPrevented) return;
+        const target = e.target as HTMLElement | null;
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+
+        for (const action of actions) {
+          if (action.shortcut && matchesShortcut(e, action.shortcut)) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (action.submenu && action.submenu.length > 0) {
+              setSubmenuActions(action.submenu);
+              setSubmenuSelectedIdx(0);
+              onShortcutOpen();
+            } else {
+              void (async () => {
+                await Promise.resolve(action.execute());
+              })();
+            }
+            return;
+          }
+        }
+      };
+
+      window.addEventListener('keydown', onWindowShortcutListener, true);
+      return () => window.removeEventListener('keydown', onWindowShortcutListener, true);
+    }, [actions, visible, onShortcutOpen]);
+
     const filteredActions = filter
       ? actions.filter((action) => action.title.toLowerCase().includes(filter.toLowerCase()))
       : actions;
 
-    const executeAction = (action: ExtractedAction) => {
+    const openSubmenu = (action: ExtractedAction) => {
       if (action.submenu && action.submenu.length > 0) {
         setSubmenuActions(action.submenu);
         setSubmenuSelectedIdx(0);
+      }
+    };
+
+    const executeAction = (action: ExtractedAction) => {
+      if (action.submenu && action.submenu.length > 0) {
+        openSubmenu(action);
       } else {
         onExecute(action);
       }
@@ -159,6 +218,18 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
     }, [filter]);
 
     useEffect(() => {
+      // Manage focus when submenu state changes
+      if (submenuActions) {
+        // When submenu opens, blur filter and focus panel for proper keyboard handling
+        filterRef.current?.blur();
+        panelRef.current?.focus();
+      } else {
+        // When submenu closes, restore focus to filter
+        filterRef.current?.focus();
+      }
+    }, [submenuActions]);
+
+    useEffect(() => {
       if (submenuActions) {
         panelRef.current
           ?.querySelector(`[data-submenu-action-idx="${submenuSelectedIdx}"]`)
@@ -176,7 +247,6 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
           event.preventDefault();
           event.stopPropagation();
           setSubmenuActions(null);
-          filterRef.current?.focus();
           return;
         }
         if (event.key === 'ArrowDown') {
@@ -195,7 +265,7 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
           event.preventDefault();
           event.stopPropagation();
           if (!event.repeat && submenuActions[submenuSelectedIdx]) {
-            executeAction(submenuActions[submenuSelectedIdx]);
+            onExecute(submenuActions[submenuSelectedIdx]);
           }
           return;
         }
@@ -231,10 +301,18 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
           setSelectedIdx((value) => Math.max(value - 1, 0));
           break;
         case 'ArrowRight':
+          event.preventDefault();
+          event.stopPropagation();
+          if (!event.repeat && filteredActions[selectedIdx]) {
+            openSubmenu(filteredActions[selectedIdx]);
+          }
+          break;
         case 'Enter':
           event.preventDefault();
           event.stopPropagation();
-          if (!event.repeat && filteredActions[selectedIdx]) executeAction(filteredActions[selectedIdx]);
+          if (!event.repeat && filteredActions[selectedIdx]) {
+            executeAction(filteredActions[selectedIdx]);
+          }
           break;
         case 'Escape':
           event.preventDefault();
@@ -264,6 +342,8 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
       document.documentElement.classList.contains('sc-native-liquid-glass') ||
       document.body.classList.contains('sc-native-liquid-glass');
 
+    if (!visible) return null;
+
     return (
       <div
         className="fixed inset-0 z-50"
@@ -274,6 +354,7 @@ export function createActionOverlayRuntime(deps: OverlayDeps) {
       >
         <div
           ref={panelRef}
+          tabIndex={0}
           className={`absolute bottom-12 right-3 w-80 max-h-[65vh] overflow-hidden flex flex-col ${
             (isNativeLiquidGlass || isGlassyTheme) ? 'rounded-3xl p-1' : 'rounded-xl shadow-2xl'
           }`}
